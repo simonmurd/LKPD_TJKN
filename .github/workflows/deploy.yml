@@ -32,7 +32,7 @@ jobs:
         run: bun run build
 
       - name: Upload Artifact (dist folder)
-        uses: actions/upload-pages-artifact@v3
+        uses: upload-pages-artifact@v3
         with:
           path: ./dist
 
