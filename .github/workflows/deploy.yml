@@ -1,8 +1,8 @@
-name: Deploy Bun/Vite App to GitHub Pages
+name: Deploy Vite React App
 
 on:
   push:
-    branches: [ main ] # Sesuaikan jika branch utama Anda master
+    branches: [ main ]
 
 permissions:
   contents: read
