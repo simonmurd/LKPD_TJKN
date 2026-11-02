@@ -5,14 +5,38 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
-    // Tambahkan base path relatif agar asset terbaca sempurna di GitHub Pages
+    // Jalur base relatif agar aset terbaca sempurna di GitHub Pages
     base: './',
+    
     plugins: [react(), tailwindcss()],
+    
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
     },
+
+    // Pengaturan build tambahan untuk optimasi produksi
+    build: {
+      outDir: 'dist',
+      assetsDir: 'assets',
+      sourcemap: false, // Nonaktifkan sourcemap untuk mempercepat load & menjaga keamanan kode di production
+      minify: 'esbuild', // Menggunakan esbuild bawaan Vite yang sangat cepat
+      rollupOptions: {
+        output: {
+          // Memisahkan vendor library besar agar caching browser lebih optimal
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom')) {
+                return 'vendor-react';
+              }
+              return 'vendor';
+            }
+          },
+        },
+      },
+    },
+
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
