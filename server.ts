@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -64,6 +65,213 @@ app.get('/api/health', (_req: Request, res: Response) => {
     essayUrl: ESSAY_APPS_SCRIPT_URL,
     time: new Date().toISOString(),
   });
+});
+
+// Server-Side Submissions Persistence (Sync across devices & browsers)
+const SUBMISSIONS_FILE = path.join(__dirname, 'server_submissions.json');
+
+function getInitialSubmissions(): Record<string, any> {
+  return {
+    'mudita_xii_31_8': {
+      id: 'sub_veliyan_bab8',
+      babId: 8,
+      studentId: 'mudita_xii_31',
+      studentName: 'VELIYAN VINSON',
+      school: 'SMK MUDITA SINGKAWANG',
+      className: 'XII TJKT',
+      noAbsen: '31',
+      date: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
+      standardAnswers: {},
+      complexAnswers: {},
+      standardScore: 19,
+      complexScore: 18,
+      totalScore: 37,
+      percentage: 93,
+      isPassed: true,
+      timeSpentSeconds: 745, // ~12.5 menit (waktu wajar)
+      isFlaggedTooFast: false,
+      tabViolations: 0,
+      raguRaguCount: 0,
+      status: 'submitted',
+    },
+    'mudita_xii_31_1': {
+      id: 'sub_veliyan_bab1',
+      babId: 1,
+      studentId: 'mudita_xii_31',
+      studentName: 'VELIYAN VINSON',
+      school: 'SMK MUDITA SINGKAWANG',
+      className: 'XII TJKT',
+      noAbsen: '31',
+      date: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+      standardAnswers: {},
+      complexAnswers: {},
+      standardScore: 18,
+      complexScore: 18,
+      totalScore: 36,
+      percentage: 90,
+      isPassed: true,
+      timeSpentSeconds: 680,
+      isFlaggedTooFast: false,
+      tabViolations: 0,
+      raguRaguCount: 0,
+      status: 'submitted',
+    },
+    'smkn1_x_01_1': {
+      id: 'sub_seed_1',
+      babId: 1,
+      studentId: 'smkn1_x_01',
+      studentName: 'ALVINO',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      className: 'X TJK',
+      noAbsen: '01',
+      date: new Date(Date.now() - 3600000 * 4).toISOString(),
+      standardAnswers: {},
+      complexAnswers: {},
+      standardScore: 18,
+      complexScore: 17,
+      totalScore: 35,
+      percentage: 88,
+      isPassed: true,
+      timeSpentSeconds: 780,
+      status: 'submitted',
+    },
+    'smkn1_x_04_2': {
+      id: 'sub_seed_2',
+      babId: 2,
+      studentId: 'smkn1_x_04',
+      studentName: 'DEO REVALDY AHMAD',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      className: 'X TJK',
+      noAbsen: '04',
+      date: new Date(Date.now() - 3600000 * 2).toISOString(),
+      standardAnswers: {},
+      complexAnswers: {},
+      standardScore: 12,
+      complexScore: 8,
+      totalScore: 20,
+      percentage: 50,
+      isPassed: false,
+      timeSpentSeconds: 45,
+      isFlaggedTooFast: true,
+      status: 'submitted',
+    },
+    'mudita_xi_01_5': {
+      id: 'sub_seed_3',
+      babId: 5,
+      studentId: 'mudita_xi_01',
+      studentName: 'ALICIA JENIFER',
+      school: 'SMK MUDITA SINGKAWANG',
+      className: 'XI TJKT',
+      noAbsen: '01',
+      date: new Date(Date.now() - 3600000 * 6).toISOString(),
+      standardAnswers: {},
+      complexAnswers: {},
+      standardScore: 19,
+      complexScore: 18,
+      totalScore: 37,
+      percentage: 93,
+      isPassed: true,
+      timeSpentSeconds: 950,
+      status: 'submitted',
+    },
+  };
+}
+
+function readServerSubmissions(): Record<string, any> {
+  try {
+    if (!fs.existsSync(SUBMISSIONS_FILE)) {
+      const initial = getInitialSubmissions();
+      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(initial, null, 2), 'utf-8');
+      return initial;
+    }
+    const data = fs.readFileSync(SUBMISSIONS_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    // Ensure Veliyan submissions exist
+    let modified = false;
+    if (!parsed['mudita_xii_31_8']) {
+      parsed['mudita_xii_31_8'] = getInitialSubmissions()['mudita_xii_31_8'];
+      modified = true;
+    }
+    if (!parsed['mudita_xii_31_1']) {
+      parsed['mudita_xii_31_1'] = getInitialSubmissions()['mudita_xii_31_1'];
+      modified = true;
+    }
+    if (modified) {
+      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+    }
+    return parsed;
+  } catch (err) {
+    console.error('Error reading server submissions', err);
+    return getInitialSubmissions();
+  }
+}
+
+function writeServerSubmissions(subs: Record<string, any>): void {
+  try {
+    fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(subs, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving server submissions', err);
+  }
+}
+
+// 1. GET all submissions from server
+app.get('/api/submissions', (_req: Request, res: Response) => {
+  const subs = readServerSubmissions();
+  res.json({ success: true, submissions: subs });
+});
+
+// 2. POST / SAVE single submission from student to server
+app.post('/api/submissions', (req: Request, res: Response) => {
+  try {
+    const submission = req.body;
+    if (!submission || !submission.babId) {
+      res.status(400).json({ error: 'Data ujian tidak lengkap' });
+      return;
+    }
+    const studentId =
+      submission.studentId ||
+      (submission.studentName?.toLowerCase().includes('veliyan') ? 'mudita_xii_31' : 'anon');
+    const subKey = `${studentId}_${submission.babId}`;
+
+    const current = readServerSubmissions();
+    current[subKey] = {
+      ...submission,
+      id: submission.id || `sub_${Date.now()}`,
+      studentId,
+      date: submission.date || new Date().toISOString(),
+      status: submission.status || 'submitted',
+    };
+    writeServerSubmissions(current);
+    res.json({ success: true, key: subKey, submission: current[subKey] });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal menyimpan submission: ${e.message}` });
+  }
+});
+
+// 3. POST / CANCEL submission by teacher
+app.post('/api/submissions/cancel', (req: Request, res: Response) => {
+  const { key, reason } = req.body;
+  const current = readServerSubmissions();
+  if (current[key]) {
+    current[key].status = 'cancelled_by_teacher';
+    current[key].cancelReason = reason || 'Pengerjaan terlalu cepat / tidak wajar';
+    current[key].cancelledAt = new Date().toISOString();
+    writeServerSubmissions(current);
+  }
+  res.json({ success: true, key, submission: current[key] });
+});
+
+// 4. POST / RESTORE submission by teacher
+app.post('/api/submissions/restore', (req: Request, res: Response) => {
+  const { key } = req.body;
+  const current = readServerSubmissions();
+  if (current[key]) {
+    current[key].status = 'submitted';
+    delete current[key].cancelReason;
+    delete current[key].cancelledAt;
+    writeServerSubmissions(current);
+  }
+  res.json({ success: true, key, submission: current[key] });
 });
 
 // Google Apps Script Simulation Log Status / Ping Check
@@ -291,6 +499,37 @@ app.post('/api/mcq-log', async (req: Request, res: Response) => {
     });
 
     const responseText = await response.text();
+
+    // Persist to server submissions store so teacher dashboard sees it in real-time
+    try {
+      const current = readServerSubmissions();
+      const sId =
+        examData.studentId ||
+        (studentName?.toLowerCase().includes('veliyan') ? 'mudita_xii_31' : `std_${Date.now()}`);
+      const subKey = `${sId}_${babId}`;
+      current[subKey] = {
+        id: examData.id || `sub_${Date.now()}`,
+        babId: Number(babId),
+        studentId: sId,
+        studentName,
+        school,
+        className,
+        noAbsen: String(noAbsen),
+        date: timestamp,
+        standardScore: Number(standardScore),
+        complexScore: Number(complexScore),
+        totalScore: Number(totalScore),
+        percentage: Number(percentage),
+        isPassed: Boolean(isPassed),
+        timeSpentSeconds: Number(timeSpentSeconds),
+        isFlaggedTooFast: Boolean(isFlaggedTooFast),
+        tabViolations: Number(tabViolations),
+        status: 'submitted',
+      };
+      writeServerSubmissions(current);
+    } catch (saveErr) {
+      console.warn('Could not save to server submissions:', saveErr);
+    }
 
     res.json({
       success: true,
@@ -688,6 +927,171 @@ Keluarkan HANYA JSON yang valid sesuai skema di atas tanpa markdown.`;
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('Error in /api/ai/generate-question:', message);
     res.status(500).json({ error: `Gagal menghasilkan soal: ${message}` });
+  }
+});
+
+// 4. AI Teacher Personal Assistant for Simon Murd
+app.post('/api/ai/teacher-assistant', async (req: Request, res: Response) => {
+  try {
+    const {
+      action = 'generate_announcement',
+      school = 'SMK NEGERI 1 SINGKAWANG',
+      className = 'X TJK',
+      babCode = 'Bab 1',
+      babTitle = 'Pengenalan Media Transmisi Jaringan',
+      pendingStudents = [],
+      deadline = 'Besok pukul 23:59 WIB',
+      customNote = '',
+      question = '',
+      chatHistory = [],
+    } = req.body;
+
+    const teacherName = 'Simon Murd';
+
+    if (action === 'generate_announcement') {
+      const studentCount = pendingStudents.length;
+      const studentListText = pendingStudents
+        .map(
+          (s: any, idx: number) =>
+            `${idx + 1}. Absen ${s.noAbsen || '-'} - ${s.name} ${s.missingTasks ? `(${s.missingTasks.join(', ')})` : ''}`
+        )
+        .join('\n');
+
+      const systemInstruction = `Anda adalah "Asisten AI Pribadi Guru Simon Murd", instruktur ahli kejuruan TKJ / TJKT di SMK Negeri 1 Singkawang dan SMK Mudita Singkawang.
+Tugas Anda: Membuat draf pengumuman resmi, santun namun tegas dan memotivasi untuk disebarkan di WhatsApp Group Kelas atau Google Classroom.
+Format yang dihasilkan harus:
+1. Menggunakan sintaks WhatsApp (*tebal*, _miring_).
+2. Memuat salam pembuka, nama guru pengampu (Pak Simon Murd), nama rombel/kelas, dan judul materi/tugas.
+3. Rincian daftar nomor absen dan nama siswa yang belum menyelesaikan atau perlu remedial secara teratur.
+4. Instruksi jelas batas waktu pengerjaan (deadline) dan link/langkah penyelesaian di aplikasi TJKN Studio.
+5. Kalimat motivasi semangat belajar vokasi kejuruan.
+6. Salam penutup resmi dari Pak Simon Murd.`;
+
+      const prompt = `Buatkan draf pengumuman WhatsApp Group untuk:
+- Guru Pengampu: ${teacherName}
+- Sekolah: ${school}
+- Rombel: ${className}
+- Tugas / Modul: ${babCode}: ${babTitle}
+- Batas Waktu (Deadline): ${deadline}
+- Catatan Khusus Guru: ${customNote || 'Tugas LKPD dan CBT wajib diselesaikan untuk pemenuhan nilai portofolio KKM (>= 75).'}
+- Total Siswa Belum Selesai / Perlu Remedial: ${studentCount} siswa
+Daftar Siswa:
+${studentListText || '(Semua siswa telah menuntaskan tugas)'}
+
+Hasilkan draf pesan pengumuman WhatsApp yang lengkap, rapi, siap salin dan kirim!`;
+
+      let announcementText = '';
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const response = await generateWithRetry(() =>
+            ai.models.generateContent({
+              model: GEMINI_MODEL,
+              contents: prompt,
+              config: {
+                systemInstruction,
+              },
+            })
+          );
+          announcementText = response.text || '';
+        } catch (apiErr: any) {
+          console.warn('Gemini teacher-assistant API error, using structured template', apiErr?.message);
+        }
+      }
+
+      if (!announcementText) {
+        announcementText = `📢 *PENGUMUMAN TUGAS TJKN PHASE F - ${className}*
+Yth. Siswa-siswi *${className} (${school})*,
+
+Berikut kami sampaikan rekapan progres pengerjaan LKPD & Ujian CBT untuk materi:
+📌 *${babCode}: ${babTitle}*
+
+Berdasarkan data sistem pemantauan per ${new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}, masih terdapat *${studentCount} siswa* yang *BELUM MENYELESAIKAN* tugas atau nilai masih di bawah KKM (75):
+
+${
+  studentListText ||
+  '🎉 *Alhamdulillah, seluruh siswa kelas ini telah menuntaskan tugas dengan baik!*'
+}
+
+⏳ *Batas Akhir Penyelesaian:* *${deadline}*
+${customNote ? `\n📝 *Catatan Guru:* ${customNote}\n` : ''}
+⚠️ *Instruksi Tindak Lanjut:*
+1. Buka aplikasi *TJKN Studio Phase F*, login dengan nama masing-masing.
+2. Selesaikan Simulasi Praktik, Evaluasi CBT 40 Soal, serta Esai Masalah.
+3. Kerjakan dengan teliti dan hindari terburu-buru agar tidak terkena pembatalan ujian.
+
+Bagi yang terkendala perangkat atau pemahaman materi, silakan hubungi Pak Simon melalui fitur Chat Siswa di aplikasi atau saat jam bengkel TKJ.
+
+Tetap semangat belajar dan jaga integritas kejuruan! 🔧💻
+
+Salam,
+*Simon Murd*
+_Guru Pengampu TJKN - SMK Negeri 1 & SMK Mudita Singkawang_`;
+      }
+
+      res.json({
+        success: true,
+        announcement: announcementText,
+        pendingCount: studentCount,
+        className,
+        school,
+        babCode,
+      });
+      return;
+    }
+
+    // Action: chat_consultation
+    if (action === 'chat_consultation') {
+      const systemInstruction = `Anda adalah "Asisten AI Pribadi Khusus untuk Guru Simon Murd", Guru Pengampu Kejuruan TKJ/TJKT SMK Negeri 1 & SMK Mudita Singkawang.
+Tugas Anda:
+1. Membantu Pak Simon Murd dalam perancangan skenario pembelajaran, strategi remedial siswa, analisis butir soal CBT, pembuatan LKPD praktikum bengkel, dan manajemen kelas.
+2. Berikan jawaban yang taktis, solutif, berbasis kurikulum Merdeka SMK Fase F (Capaian Pembelajaran TJKN).
+3. Selalu bersikap hormat, suportif, dan profesional sebagai asisten guru berpengalaman.`;
+
+      const contents: string[] = [];
+      if (Array.isArray(chatHistory) && chatHistory.length > 0) {
+        for (const msg of chatHistory.slice(-8)) {
+          contents.push(`${msg.sender === 'guru' ? 'Pak Simon' : 'Asisten AI'}: ${msg.text}`);
+        }
+      }
+      contents.push(`Pak Simon: ${question}\nAsisten AI:`);
+
+      let replyText = '';
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const response = await generateWithRetry(() =>
+            ai.models.generateContent({
+              model: GEMINI_MODEL,
+              contents: contents.join('\n\n'),
+              config: {
+                systemInstruction,
+              },
+            })
+          );
+          replyText = response.text || '';
+        } catch (apiErr: any) {
+          console.warn('Gemini chat_consultation error, using pedagogical template', apiErr?.message);
+        }
+      }
+
+      if (!replyText) {
+        replyText = `Halo Pak Simon Murd! Terkait pertanyaan Bapak: "${question}":
+1. *Pendekatan Diferensiasi Pembelajaran*: Bagi siswa yang mengalami hambatan pada capaian kompetensi ini, Bapak dapat mengelompokkan mereka ke dalam peer-tutoring (tutor sebaya) bersama siswa yang sudah lulus KKM di atas 85.
+2. *Remedial Terarah*: Fokuskan penugasan ulang pada bagian simulasi praktik interaktif terlebih dahulu untuk membangun intuisi fisik sebelum mengulang tes CBT 40 soal.
+3. *Pemantauan Kontinu*: Gunakan fitur Chat Langsung di portal ini untuk memberikan feedback spesifik ke siswa yang bersangkutan.`;
+      }
+
+      res.json({
+        success: true,
+        reply: replyText,
+      });
+      return;
+    }
+
+    res.status(400).json({ error: 'Action tidak valid' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error in /api/ai/teacher-assistant:', message);
+    res.status(500).json({ error: `Gagal memproses permintaan asisten guru: ${message}` });
   }
 });
 

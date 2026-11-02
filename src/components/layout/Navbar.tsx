@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   School,
   Lock,
+  MessageSquare,
 } from 'lucide-react';
 import { isBabAccessibleForStudent } from '../../data/rombelAssignments';
 
@@ -39,6 +40,8 @@ interface NavbarProps {
   onOpenAiGenerator: () => void;
   onExportJson: () => void;
   rombelAssignments?: Record<string, RombelAssignment>;
+  onOpenStudentChat?: () => void;
+  unreadStudentMessageCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -58,6 +61,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAiGenerator,
   onExportJson,
   rombelAssignments = {},
+  onOpenStudentChat,
+  unreadStudentMessageCount = 0,
 }) => {
   const isMenuUnlocked = Boolean(activeStudent || isTeacherAuthenticated);
 
@@ -88,6 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Center: Active Student Identity Badge */}
         <div className="flex items-center gap-2">
           {activeStudent ? (
+            <>
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-2xs">
               <div
                 onClick={onOpenStudentSelector}
@@ -118,6 +124,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Direct Message with Teacher (Simon Murd) Button for Student */}
+            {onOpenStudentChat && (
+              <button
+                onClick={onOpenStudentChat}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-bold text-xs transition shadow-2xs relative"
+                title="Pesan Bimbingan & Catatan dari Guru (Simon Murd)"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                <span className="hidden sm:inline">Pesan Guru</span>
+                {unreadStudentMessageCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
+                    {unreadStudentMessageCount}
+                  </span>
+                )}
+              </button>
+            )}
+            </>
           ) : (
             <button
               onClick={onOpenStudentSelector}

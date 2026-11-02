@@ -103,6 +103,7 @@ export interface ExamSubmission {
   date: string;
   studentId?: string;
   studentName?: string;
+  noAbsen?: string;
   school?: string;
   className?: string;
   standardAnswers: Record<string, string>; // questionId -> 'A'..'E'
@@ -224,3 +225,18 @@ export interface EssayLogEntry {
   syncedToAppsScript?: boolean;
 }
 
+export interface DirectChatMessage {
+  id: string;
+  sender: 'guru' | 'siswa';
+  teacherName: string;
+  studentId: string;
+  studentName: string;
+  className: string;
+  school: string;
+  message: string;
+  timestamp: string;
+  isReadByStudent?: boolean;
+  isReadByTeacher?: boolean;
+  babReference?: number;
+  tag?: 'teguran' | 'pengingat' | 'apresiasi' | 'bimbingan' | 'umum';
+}

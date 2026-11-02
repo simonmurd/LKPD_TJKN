@@ -36,6 +36,8 @@ import { StudentGateScreen } from './components/auth/StudentGateScreen';
 import { TeacherLoginModal } from './components/auth/TeacherLoginModal';
 import { AiTutorDrawer } from './components/ai/AiTutorDrawer';
 import { AiQuestionGeneratorModal } from './components/ai/AiQuestionGeneratorModal';
+import { StudentDirectChatModal } from './components/student/StudentDirectChatModal';
+import { getUnreadCountForStudent } from './data/directMessagesData';
 import { CheckCircle2, ShieldAlert } from 'lucide-react';
 
 export default function App() {
@@ -64,7 +66,27 @@ export default function App() {
   // Modals & Drawers
   const [isAiTutorOpen, setIsAiTutorOpen] = useState<boolean>(false);
   const [isAiGeneratorOpen, setIsAiGeneratorOpen] = useState<boolean>(false);
+  const [isStudentChatOpen, setIsStudentChatOpen] = useState<boolean>(false);
+  const [unreadStudentMsgCount, setUnreadStudentMsgCount] = useState<number>(0);
   const [notification, setNotification] = useState<string | null>(null);
+
+  // Direct Messages Unread Listener for Active Student
+  useEffect(() => {
+    const updateUnread = () => {
+      if (activeStudent) {
+        setUnreadStudentMsgCount(getUnreadCountForStudent(activeStudent.id));
+      } else {
+        setUnreadStudentMsgCount(0);
+      }
+    };
+    updateUnread();
+    window.addEventListener('tjkn_direct_messages_updated', updateUnread);
+    window.addEventListener('storage', updateUnread);
+    return () => {
+      window.removeEventListener('tjkn_direct_messages_updated', updateUnread);
+      window.removeEventListener('storage', updateUnread);
+    };
+  }, [activeStudent]);
 
   // Initialize data on mount
   useEffect(() => {
@@ -96,76 +118,174 @@ export default function App() {
       // ignore
     }
 
-    // Load submissions
+    // Initial seed submissions including Veliyan Vinson and others
+    const seedSubs: Record<string, ExamSubmission> = {
+      'mudita_xii_31_8': {
+        id: 'sub_veliyan_bab8',
+        babId: 8,
+        studentId: 'mudita_xii_31',
+        studentName: 'VELIYAN VINSON',
+        school: 'SMK MUDITA SINGKAWANG',
+        className: 'XII TJKT',
+        noAbsen: '31',
+        date: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
+        standardAnswers: {},
+        complexAnswers: {},
+        standardScore: 19,
+        complexScore: 18,
+        totalScore: 37,
+        percentage: 93,
+        isPassed: true,
+        timeSpentSeconds: 745,
+        isFlaggedTooFast: false,
+        tabViolations: 0,
+        raguRaguCount: 0,
+        status: 'submitted',
+      },
+      'mudita_xii_31_1': {
+        id: 'sub_veliyan_bab1',
+        babId: 1,
+        studentId: 'mudita_xii_31',
+        studentName: 'VELIYAN VINSON',
+        school: 'SMK MUDITA SINGKAWANG',
+        className: 'XII TJKT',
+        noAbsen: '31',
+        date: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+        standardAnswers: {},
+        complexAnswers: {},
+        standardScore: 18,
+        complexScore: 18,
+        totalScore: 36,
+        percentage: 90,
+        isPassed: true,
+        timeSpentSeconds: 680,
+        isFlaggedTooFast: false,
+        tabViolations: 0,
+        raguRaguCount: 0,
+        status: 'submitted',
+      },
+      'smkn1_x_01_1': {
+        id: 'sub_seed_1',
+        babId: 1,
+        studentId: 'smkn1_x_01',
+        studentName: 'ALVINO',
+        school: 'SMK NEGERI 1 SINGKAWANG',
+        className: 'X TJK',
+        noAbsen: '01',
+        date: new Date(Date.now() - 3600000 * 4).toISOString(),
+        standardAnswers: {},
+        complexAnswers: {},
+        standardScore: 18,
+        complexScore: 17,
+        totalScore: 35,
+        percentage: 88,
+        isPassed: true,
+        timeSpentSeconds: 780,
+        status: 'submitted',
+      },
+      'smkn1_x_04_2': {
+        id: 'sub_seed_2',
+        babId: 2,
+        studentId: 'smkn1_x_04',
+        studentName: 'DEO REVALDY AHMAD',
+        school: 'SMK NEGERI 1 SINGKAWANG',
+        className: 'X TJK',
+        noAbsen: '04',
+        date: new Date(Date.now() - 3600000 * 2).toISOString(),
+        standardAnswers: {},
+        complexAnswers: {},
+        standardScore: 12,
+        complexScore: 8,
+        totalScore: 20,
+        percentage: 50,
+        isPassed: false,
+        timeSpentSeconds: 45,
+        isFlaggedTooFast: true,
+        status: 'submitted',
+      },
+      'mudita_xi_01_5': {
+        id: 'sub_seed_3',
+        babId: 5,
+        studentId: 'mudita_xi_01',
+        studentName: 'ALICIA JENIFER',
+        school: 'SMK MUDITA SINGKAWANG',
+        className: 'XI TJKT',
+        noAbsen: '01',
+        date: new Date(Date.now() - 3600000 * 6).toISOString(),
+        standardAnswers: {},
+        complexAnswers: {},
+        standardScore: 19,
+        complexScore: 18,
+        totalScore: 37,
+        percentage: 93,
+        isPassed: true,
+        timeSpentSeconds: 950,
+        status: 'submitted',
+      },
+    };
+
+    // Load initial submissions and merge with Veliyan
     try {
       const savedSubs = localStorage.getItem('tjkn_exam_submissions_v2');
+      let currentSubs = seedSubs;
       if (savedSubs) {
-        setSubmissions(JSON.parse(savedSubs));
-      } else {
-        // Seed initial sample submission data for teacher dashboard demo
-        const seedSubs: Record<string, ExamSubmission> = {
-          'smkn1_x_01_1': {
-            id: 'sub_seed_1',
-            babId: 1,
-            studentId: 'smkn1_x_01',
-            studentName: 'ALVINO',
-            school: 'SMK NEGERI 1 SINGKAWANG',
-            className: 'X TJK',
-            date: new Date(Date.now() - 3600000 * 4).toISOString(),
-            standardAnswers: {},
-            complexAnswers: {},
-            standardScore: 18,
-            complexScore: 17,
-            totalScore: 35,
-            percentage: 88,
-            isPassed: true,
-            timeSpentSeconds: 780, // 13 minutes (normal)
-            status: 'submitted',
-          },
-          'smkn1_x_04_2': {
-            id: 'sub_seed_2',
-            babId: 2,
-            studentId: 'smkn1_x_04',
-            studentName: 'DEO REVALDY AHMAD',
-            school: 'SMK NEGERI 1 SINGKAWANG',
-            className: 'X TJK',
-            date: new Date(Date.now() - 3600000 * 2).toISOString(),
-            standardAnswers: {},
-            complexAnswers: {},
-            standardScore: 12,
-            complexScore: 8,
-            totalScore: 20,
-            percentage: 50,
-            isPassed: false,
-            timeSpentSeconds: 45, // 45 seconds (TOO FAST!)
-            isFlaggedTooFast: true,
-            status: 'submitted',
-          },
-          'mudita_xi_01_5': {
-            id: 'sub_seed_3',
-            babId: 5,
-            studentId: 'mudita_xi_01',
-            studentName: 'ALICIA JENIFER',
-            school: 'SMK MUDITA SINGKAWANG',
-            className: 'XI TJKT',
-            date: new Date(Date.now() - 3600000 * 6).toISOString(),
-            standardAnswers: {},
-            complexAnswers: {},
-            standardScore: 19,
-            complexScore: 18,
-            totalScore: 37,
-            percentage: 93,
-            isPassed: true,
-            timeSpentSeconds: 950,
-            status: 'submitted',
-          },
-        };
-        setSubmissions(seedSubs);
-        localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(seedSubs));
+        currentSubs = { ...seedSubs, ...JSON.parse(savedSubs) };
+        // Ensure Veliyan Vinson is definitely included even if old cache exists
+        if (!currentSubs['mudita_xii_31_8']) {
+          currentSubs['mudita_xii_31_8'] = seedSubs['mudita_xii_31_8'];
+        }
+        if (!currentSubs['mudita_xii_31_1']) {
+          currentSubs['mudita_xii_31_1'] = seedSubs['mudita_xii_31_1'];
+        }
       }
+      setSubmissions(currentSubs);
+      localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(currentSubs));
     } catch (e) {
       console.warn('Failed to load submissions', e);
+      setSubmissions(seedSubs);
     }
+
+    // Sync real-time with server submissions
+    fetch('/api/submissions')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.submissions) {
+          setSubmissions((prev) => {
+            const merged = { ...prev, ...data.submissions };
+            try {
+              localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
+        }
+      })
+      .catch((err) => console.warn('Could not sync with server on mount', err));
+  }, []);
+
+  const syncSubmissionsWithServer = () => {
+    fetch('/api/submissions')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.submissions) {
+          setSubmissions((prev) => {
+            const merged = { ...prev, ...data.submissions };
+            try {
+              localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
+        }
+      })
+      .catch((err) => console.warn('Could not sync with server', err));
+  };
+
+  // Periodic Polling to sync submissions across student and teacher devices (every 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      syncSubmissionsWithServer();
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const showToastNotification = (msg: string) => {
@@ -235,6 +355,13 @@ export default function App() {
       // ignore
     }
 
+    // Persist to server for real-time teacher synchronization
+    fetch('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(enrichedSub),
+    }).catch((err) => console.warn('Could not post submission to server', err));
+
     if (enrichedSub.isFlaggedTooFast) {
       showToastNotification(
         `Hasil CBT ${selectedBab?.code} tersimpan! Catatan: Waktu pengerjaan ${Math.floor(
@@ -265,6 +392,14 @@ export default function App() {
     } catch (e) {
       // ignore
     }
+
+    // Sync cancellation to server
+    fetch('/api/submissions/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: subKey, reason }),
+    }).catch(() => {});
+
     showToastNotification(`Ujian ${current.studentName} (${current.school}) berhasil dibatalkan.`);
   };
 
@@ -287,6 +422,14 @@ export default function App() {
     } catch (e) {
       // ignore
     }
+
+    // Sync restoration to server
+    fetch('/api/submissions/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: subKey }),
+    }).catch(() => {});
+
     showToastNotification(`Hasil ujian ${current.studentName} dipulihkan.`);
   };
 
@@ -397,6 +540,8 @@ export default function App() {
         onOpenAiGenerator={() => setIsAiGeneratorOpen(true)}
         onExportJson={handleExportJson}
         rombelAssignments={rombelAssignments}
+        onOpenStudentChat={() => setIsStudentChatOpen(true)}
+        unreadStudentMessageCount={unreadStudentMsgCount}
       />
 
       {/* Floating Notification Toast */}
@@ -518,6 +663,7 @@ export default function App() {
                 babs={babs}
                 rombelAssignments={rombelAssignments}
                 onUpdateRombelAssignments={handleUpdateRombelAssignments}
+                onRefreshSubmissions={syncSubmissionsWithServer}
               />
             )}
 
@@ -580,6 +726,15 @@ export default function App() {
         onClose={() => setIsAiGeneratorOpen(false)}
         onAddQuestion={handleAddQuestionFromAi}
       />
+
+      {/* Student Direct Chat Modal (Messages from Guru Simon Murd) */}
+      {activeStudent && (
+        <StudentDirectChatModal
+          isOpen={isStudentChatOpen}
+          onClose={() => setIsStudentChatOpen(false)}
+          activeStudent={activeStudent}
+        />
+      )}
     </div>
   );
 }

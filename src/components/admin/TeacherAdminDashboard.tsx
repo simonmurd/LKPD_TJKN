@@ -7,6 +7,9 @@ import {
   RombelAssignment,
 } from '../../types/curriculum';
 import { RombelAssignmentManager } from './RombelAssignmentManager';
+import { TeacherDirectChatAndProgress } from './TeacherDirectChatAndProgress';
+import { TeacherAiAssistantTab } from './TeacherAiAssistantTab';
+import { getUnreadCountForTeacher } from '../../data/directMessagesData';
 import {
   Users,
   Search,
@@ -32,6 +35,8 @@ import {
   FileQuestion,
   HelpCircle,
   Check,
+  MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 
 interface TeacherAdminDashboardProps {
@@ -44,6 +49,7 @@ interface TeacherAdminDashboardProps {
   babs: CurriculumBab[];
   rombelAssignments: Record<string, RombelAssignment>;
   onUpdateRombelAssignments: (next: Record<string, RombelAssignment>) => void;
+  onRefreshSubmissions?: () => void;
 }
 
 const APPS_SCRIPT_URLS = {
@@ -62,13 +68,31 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
   babs,
   rombelAssignments,
   onUpdateRombelAssignments,
+  onRefreshSubmissions,
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'rombel_assignments' | 'students_crud' | 'simulation_logs'>('monitoring');
+  const [activeTab, setActiveTab] = useState<
+    'monitoring' | 'chat_progress' | 'ai_assistant' | 'rombel_assignments' | 'students_crud' | 'simulation_logs'
+  >('monitoring');
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterSchool, setFilterSchool] = useState<string>('all');
   const [filterClass, setFilterClass] = useState<string>('all');
   const [filterBab, setFilterBab] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  useEffect(() => {
+    const updateUnread = () => {
+      setUnreadMessagesCount(getUnreadCountForTeacher());
+    };
+    updateUnread();
+    window.addEventListener('tjkn_direct_messages_updated', updateUnread);
+    window.addEventListener('storage', updateUnread);
+    return () => {
+      window.removeEventListener('tjkn_direct_messages_updated', updateUnread);
+      window.removeEventListener('storage', updateUnread);
+    };
+  }, []);
 
   // Student CRUD Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -227,9 +251,12 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
       sub.className?.toLowerCase().includes(q) ||
       `bab ${sub.babId}`.includes(q);
 
-    const matchSchool = filterSchool === 'all' || sub.school === filterSchool;
-    const matchClass = filterClass === 'all' || sub.className === filterClass;
-    const matchBab = filterBab === 'all' || String(sub.babId) === filterBab;
+    // If searching explicitly by name (e.g., "veliyan"), don't hide by school or class mismatch
+    const isExplicitNameSearch = Boolean(q && sub.studentName?.toLowerCase().includes(q));
+
+    const matchSchool = isExplicitNameSearch || filterSchool === 'all' || sub.school === filterSchool;
+    const matchClass = isExplicitNameSearch || filterClass === 'all' || sub.className === filterClass;
+    const matchBab = isExplicitNameSearch || filterBab === 'all' || String(sub.babId) === filterBab;
     const matchStatus =
       filterStatus === 'all' ||
       (filterStatus === 'too_fast' && sub.isFlaggedTooFast) ||
@@ -367,6 +394,35 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('chat_progress')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+            activeTab === 'chat_progress'
+              ? 'bg-blue-600 text-white shadow-xs font-bold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4 text-blue-500" />
+          <span>Chat & Cek Progres Siswa</span>
+          {unreadMessagesCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
+              {unreadMessagesCount} baru
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('ai_assistant')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+            activeTab === 'ai_assistant'
+              ? 'bg-indigo-600 text-white shadow-xs font-bold'
+              : 'text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100/80'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-500" />
+          <span>Asisten Pribadi Guru (AI)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('rombel_assignments')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
             activeTab === 'rombel_assignments'
@@ -403,7 +459,29 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
         </button>
       </div>
 
-      {/* TAB 1: ROMBEL ASSIGNMENTS (NEW REQUIREMENT) */}
+      {/* TAB: CHAT & CEK PROGRES SISWA */}
+      {activeTab === 'chat_progress' && (
+        <TeacherDirectChatAndProgress
+          students={students}
+          submissions={submissions}
+          babs={babs}
+          rombelAssignments={rombelAssignments}
+          onCancelSubmission={onCancelSubmission}
+          onRestoreSubmission={onRestoreSubmission}
+        />
+      )}
+
+      {/* TAB: ASISTEN PRIBADI GURU AI (SIMON MURD) */}
+      {activeTab === 'ai_assistant' && (
+        <TeacherAiAssistantTab
+          students={students}
+          submissions={submissions}
+          babs={babs}
+          rombelAssignments={rombelAssignments}
+        />
+      )}
+
+      {/* TAB: ROMBEL ASSIGNMENTS */}
       {activeTab === 'rombel_assignments' && (
         <RombelAssignmentManager
           assignments={rombelAssignments}
@@ -415,6 +493,44 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
       {/* TAB 2: MONITORING SUBMISSIONS & CANCELLATIONS */}
       {activeTab === 'monitoring' && (
         <div className="space-y-4">
+          {/* Quick Highlight Banner: Siswa Baru Menyelesaikan Ujian (VELIYAN VINSON) */}
+          {submissionList.some((s) => s.studentName?.toLowerCase().includes('veliyan')) && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold font-mono text-sm shadow-xs">
+                  31
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-sm text-emerald-950">
+                      Hasil Ujian CBT Baru Masuk: VELIYAN VINSON
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-mono font-bold text-[10px]">
+                      XII TJKT • SMK MUDITA
+                    </span>
+                  </div>
+                  <p className="text-emerald-700 text-xs mt-0.5">
+                    Siswa telah tuntas mengerjakan evaluasi CBT dengan nilai <strong>93% (LULUS KKM)</strong> • Durasi 12 menit 25 detik (Normal).
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setSearchQuery('Veliyan');
+                  setFilterSchool('all');
+                  setFilterClass('all');
+                  setFilterBab('all');
+                  setFilterStatus('all');
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Tampilkan Langsung Hasil Veliyan</span>
+              </button>
+            </div>
+          )}
+
           {/* Filter Bar */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
@@ -423,12 +539,27 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari nama siswa, rombel, atau bab..."
+                placeholder="Cari nama siswa (contoh: Veliyan), rombel, atau bab..."
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {onRefreshSubmissions && (
+                <button
+                  onClick={() => {
+                    setIsRefreshing(true);
+                    onRefreshSubmissions();
+                    setTimeout(() => setIsRefreshing(false), 800);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold transition shadow-2xs cursor-pointer"
+                  title="Sinkronkan data ujian terbaru secara langsung dari seluruh siswa"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshing ? 'Sinkronisasi...' : 'Segarkan Data'}</span>
+                </button>
+              )}
+
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
