@@ -12,6 +12,7 @@ import {
   onSnapshot,
   Timestamp,
   updateDoc,
+  deleteDoc,
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -63,10 +64,13 @@ export async function saveSubmissionToFirestore(submission: ExamSubmission): Pro
   try {
     const key = `${submission.studentId || 'std'}_${submission.babId}`;
     const docRef = doc(db, 'submissions', key);
-    await setDoc(docRef, {
-      ...submission,
-      firestoreUpdatedAt: new Date().toISOString(),
-    }, { merge: true });
+    const cleanData = Object.fromEntries(
+      Object.entries({
+        ...submission,
+        firestoreUpdatedAt: new Date().toISOString(),
+      }).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(docRef, cleanData, { merge: true });
   } catch (err) {
     console.error('Error saving submission to Firestore:', err);
   }
@@ -92,10 +96,13 @@ export async function saveSimulationLogToFirestore(log: SimulationLogEntry): Pro
   try {
     const docId = log.id || `sim_${Date.now()}`;
     const docRef = doc(db, 'simulationLogs', docId);
-    await setDoc(docRef, {
-      ...log,
-      firestoreTimestamp: new Date().toISOString(),
-    }, { merge: true });
+    const cleanData = Object.fromEntries(
+      Object.entries({
+        ...log,
+        firestoreTimestamp: new Date().toISOString(),
+      }).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(docRef, cleanData, { merge: true });
   } catch (err) {
     console.error('Error saving simulation log to Firestore:', err);
   }
@@ -121,10 +128,13 @@ export async function saveEssayLogToFirestore(essay: EssayLogEntry): Promise<voi
   try {
     const docId = essay.id || `essay_${essay.studentId}_${essay.babId}_${essay.questionId}`;
     const docRef = doc(db, 'essayLogs', docId);
-    await setDoc(docRef, {
-      ...essay,
-      firestoreTimestamp: new Date().toISOString(),
-    }, { merge: true });
+    const cleanData = Object.fromEntries(
+      Object.entries({
+        ...essay,
+        firestoreTimestamp: new Date().toISOString(),
+      }).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(docRef, cleanData, { merge: true });
   } catch (err) {
     console.error('Error saving essay to Firestore:', err);
   }
@@ -150,10 +160,13 @@ export async function sendChatMessageToFirestore(msg: DirectChatMessage): Promis
   try {
     const docId = msg.id || `msg_${Date.now()}`;
     const docRef = doc(db, 'directMessages', docId);
-    await setDoc(docRef, {
-      ...msg,
-      timestamp: msg.timestamp || new Date().toISOString(),
-    }, { merge: true });
+    const cleanData = Object.fromEntries(
+      Object.entries({
+        ...msg,
+        timestamp: msg.timestamp || new Date().toISOString(),
+      }).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(docRef, cleanData, { merge: true });
   } catch (err) {
     console.error('Error sending chat message to Firestore:', err);
   }
@@ -202,10 +215,13 @@ export async function fetchExamConfigFromFirestore(): Promise<ExamConfig | null>
 export async function saveExamConfigToFirestore(config: ExamConfig): Promise<void> {
   try {
     const docRef = doc(db, 'configs', 'examConfig');
-    await setDoc(docRef, {
-      ...config,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    const cleanData = Object.fromEntries(
+      Object.entries({
+        ...config,
+        updatedAt: new Date().toISOString(),
+      }).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(docRef, cleanData, { merge: true });
   } catch (err) {
     console.error('Error saving exam config to Firestore:', err);
   }
@@ -257,5 +273,60 @@ export function subscribeToPresenceFromFirestore(
   } catch (err) {
     console.warn('Could not initiate Firestore presence subscription:', err);
     return () => {};
+  }
+}
+
+// 7. RESET STUDENT OR ROMBEL PROGRESS IN FIRESTORE
+export async function deleteStudentProgressFromFirestore(
+  scope: 'student' | 'rombel',
+  target: { studentId?: string; rombel?: string; school?: string }
+): Promise<void> {
+  try {
+    const matches = (data: any) => {
+      if (!data) return false;
+      if (scope === 'student') {
+        return data.studentId === target.studentId;
+      }
+      const rombelMatch = data.rombel === target.rombel;
+      const schoolMatch = target.school ? data.school === target.school : true;
+      return rombelMatch && schoolMatch;
+    };
+
+    const collectionsToClean = ['submissions', 'simulationLogs', 'essayLogs'];
+    for (const colName of collectionsToClean) {
+      const snap = await getDocs(collection(db, colName));
+      const deletions: Promise<void>[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        if (matches(data) || (colName === 'submissions' && scope === 'student' && target.studentId && d.id.startsWith(`${target.studentId}_`))) {
+          deletions.push(deleteDoc(d.ref));
+        }
+      });
+      await Promise.all(deletions);
+    }
+  } catch (err) {
+    console.warn('Could not delete progress from Firestore:', err);
+  }
+}
+
+export async function clearAllDataFromFirestore(): Promise<void> {
+  try {
+    const collectionsToClean = [
+      'submissions',
+      'simulationLogs',
+      'essayLogs',
+      'directMessages',
+      'presence',
+    ];
+    for (const colName of collectionsToClean) {
+      const snap = await getDocs(collection(db, colName));
+      const deletions: Promise<void>[] = [];
+      snap.forEach((d) => {
+        deletions.push(deleteDoc(d.ref));
+      });
+      await Promise.all(deletions);
+    }
+  } catch (err) {
+    console.warn('Could not clear all data from Firestore:', err);
   }
 }

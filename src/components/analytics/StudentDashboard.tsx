@@ -277,122 +277,106 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         )}
       </div>
 
-      {/* Overview Stat Cards - Bright Minimalist */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-          <div className="text-slate-500 text-xs font-mono uppercase font-bold">Modul Selesai</div>
-          <div className="text-2xl font-black text-slate-900 mt-1 font-mono">
-            {completedCount} <span className="text-slate-400 text-sm font-normal">/ 14 Bab</span>
+      {/* Tabel Ceklis Sumatif Lingkup Materi (1 - 14) & Nilai Akhir (NA) */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-extrabold text-base text-slate-900">
+              Rekap Ceklis Sumatif Lingkup Materi (Bab 1 – 14)
+            </h3>
+            <p className="text-xs text-slate-500">
+              Tanda ceklis (✓) menunjukkan modul/tugas yang sudah dikerjakan, beserta Nilai Akhir (NA) total.
+            </p>
           </div>
-          <div className="w-full bg-slate-100 rounded-full h-1.5 mt-3 overflow-hidden">
-            <div
-              className="bg-blue-600 h-full rounded-full transition-all duration-500"
-              style={{ width: `${(completedCount / 14) * 100}%` }}
-            />
-          </div>
+          <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-3 py-1 rounded-xl">
+            KKM: 75 • Klik nomor Bab untuk membuka modul
+          </span>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-          <div className="text-slate-500 text-xs font-mono uppercase font-bold">Lolos KKM (&ge; 75)</div>
-          <div className="text-2xl font-black text-emerald-600 mt-1 font-mono">
-            {passedCount} <span className="text-slate-400 text-sm font-normal">Modul</span>
-          </div>
-          <div className="text-[11px] text-slate-500 mt-2">
-            Tingkat Kelulusan:{' '}
-            <strong className="text-slate-900">
-              {completedCount > 0 ? Math.round((passedCount / completedCount) * 100) : 0}%
-            </strong>
-          </div>
-        </div>
+        <div className="overflow-x-auto border border-slate-300 rounded-2xl">
+          <table className="w-full text-center text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold">
+                <th rowSpan={2} className="p-2.5 border-r border-slate-300 w-12">
+                  No
+                </th>
+                <th rowSpan={2} className="p-2.5 border-r border-slate-300 text-left min-w-[180px]">
+                  Nama Siswa
+                </th>
+                <th colSpan={14} className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]">
+                  Sumatif Lingkup Materi (Bab 1 – 14)
+                </th>
+                <th rowSpan={2} className="p-2.5 w-16 font-extrabold">
+                  NA
+                </th>
+              </tr>
+              <tr className="bg-slate-50 border-b border-slate-300 text-slate-700 font-mono text-[11px]">
+                {Array.from({ length: 14 }, (_, i) => i + 1).map((num) => (
+                  <th
+                    key={num}
+                    onClick={() => onSelectBab(num)}
+                    title={`Buka Bab ${num}`}
+                    className="p-1.5 border-r border-slate-300 w-9 cursor-pointer hover:bg-blue-100 hover:text-blue-700 transition"
+                  >
+                    {num}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-white hover:bg-slate-50/70">
+                <td className="p-2.5 border-r border-slate-300 font-mono font-bold text-slate-700">
+                  {activeStudent?.noAbsen || '01'}
+                </td>
+                <td className="p-2.5 border-r border-slate-300 text-left font-bold text-slate-900">
+                  {activeStudent ? `${activeStudent.noAbsen} ${activeStudent.name}` : 'Siswa Aktif'}
+                </td>
+                {Array.from({ length: 14 }, (_, i) => i + 1).map((num) => {
+                  const sub = submissions[num];
+                  const hasSim = simLogs.some(
+                    (s) =>
+                      (s.studentId === activeStudent?.id ||
+                        s.studentName?.toLowerCase() === activeStudent?.name.toLowerCase()) &&
+                      s.babId === num
+                  );
+                  const hasEssay = essayLogs.some(
+                    (e) =>
+                      (e.studentId === activeStudent?.id ||
+                        e.studentName?.toLowerCase() === activeStudent?.name.toLowerCase()) &&
+                      e.babId === num
+                  );
+                  const isChecked = Boolean(
+                    (sub && sub.status !== 'cancelled_by_teacher') || hasSim || hasEssay
+                  );
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-          <div className="text-slate-500 text-xs font-mono uppercase font-bold">Rata-Rata Nilai CBT</div>
-          <div className="text-2xl font-black text-slate-900 mt-1 font-mono">
-            {avgScore} <span className="text-slate-400 text-sm font-normal">/ 100</span>
-          </div>
-          <div className="text-[11px] text-slate-500 mt-2">
-            Predikat: <strong className="text-blue-700">{avgScore >= 85 ? 'A (Sangat Baik)' : avgScore >= 75 ? 'B (Baik)' : 'C (Perlu Remedial)'}</strong>
-          </div>
-        </div>
-
-        <div className={`rounded-2xl p-5 border shadow-xs ${ukkBadge}`}>
-          <div className="text-xs font-mono uppercase opacity-75 font-bold">Status Kesiapan UKK</div>
-          <div className="text-sm font-black mt-1 line-clamp-1">{ukkStatus}</div>
-          <div className="text-[10px] mt-2 opacity-80 font-mono">
-            Standar Uji Kompetensi Kejuruan LSP-P1
-          </div>
-        </div>
-      </div>
-
-      {/* 4 Curriculum Clusters */}
-      <div className="space-y-3">
-        <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-blue-600" />
-          Progres Belajar Berdasarkan 4 Kluster Kompetensi TJKN Fase F:
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {categories.map((cat, idx) => {
-            const clusterBabs = babs.filter((b) => cat.babIds.includes(b.id));
-            const clusterCompleted = clusterBabs.filter((b) => submissions[b.id]).length;
-            const clusterPassed = clusterBabs.filter((b) => submissions[b.id]?.isPassed).length;
-
-            return (
-              <div
-                key={idx}
-                className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-xs sm:text-sm text-slate-900">{cat.name}</h4>
-                  <span className="text-xs font-mono text-slate-500">
-                    {clusterCompleted} / {clusterBabs.length} Bab
-                  </span>
-                </div>
-
-                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className="bg-blue-600 h-full rounded-full transition-all"
-                    style={{ width: `${(clusterCompleted / clusterBabs.length) * 100}%` }}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  {clusterBabs.map((b) => {
-                    const sub = submissions[b.id];
-                    return (
-                      <button
-                        key={b.id}
-                        onClick={() => onSelectBab(b.id)}
-                        className={`p-2.5 rounded-xl border text-left transition flex items-center justify-between text-xs group ${
-                          sub
-                            ? sub.isPassed
-                              ? 'bg-emerald-50/60 border-emerald-200 text-slate-800 hover:bg-emerald-50'
-                              : 'bg-amber-50/60 border-amber-200 text-slate-800 hover:bg-amber-50'
-                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                        }`}
-                      >
-                        <div className="truncate">
-                          <span className="font-bold mr-1">{b.code}</span>
-                          <span className="text-[11px] text-slate-500 truncate">{b.title.slice(0, 15)}...</span>
-                        </div>
-                        {sub ? (
-                          <span
-                            className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
-                              sub.isPassed ? 'text-emerald-700 bg-emerald-100' : 'text-amber-700 bg-amber-100'
-                            }`}
-                          >
-                            {sub.percentage}%
-                          </span>
-                        ) : (
-                          <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+                  return (
+                    <td
+                      key={num}
+                      onClick={() => onSelectBab(num)}
+                      className="p-2 border-r border-slate-300 font-bold text-sm cursor-pointer hover:bg-blue-50 transition"
+                    >
+                      {isChecked ? (
+                        <span className="text-emerald-600 font-extrabold">✓</span>
+                      ) : (
+                        <span className="text-slate-200">-</span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td
+                  className={`p-2.5 font-mono font-extrabold text-sm ${
+                    avgScore === 0
+                      ? 'bg-slate-100 text-slate-500'
+                      : avgScore < 75
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {avgScore}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

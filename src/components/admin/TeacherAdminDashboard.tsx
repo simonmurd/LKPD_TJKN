@@ -15,6 +15,7 @@ import { getUnreadCountForTeacher } from '../../data/directMessagesData';
 import { ExamSessionConfigModal } from './ExamSessionConfigModal';
 import { CbtItemAnalysisModal } from './CbtItemAnalysisModal';
 import { TeacherTaskManager } from './TeacherTaskManager';
+import { clearAllDataFromFirestore } from '../../lib/firebase';
 import { ClipboardList } from 'lucide-react';
 import {
   BarChart3,
@@ -1083,6 +1084,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
                   setIsClearingDummy(true);
                   try {
                     await fetch('/api/admin/clear-dummy-data', { method: 'POST' });
+                    await clearAllDataFromFirestore();
                     localStorage.removeItem('tjkn_submissions_v1');
                     localStorage.removeItem('tjkn_simulation_logs');
                     localStorage.removeItem('tjkn_direct_messages_v1');

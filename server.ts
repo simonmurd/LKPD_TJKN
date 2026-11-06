@@ -290,6 +290,73 @@ app.post('/api/admin/clear-dummy-data', (_req: Request, res: Response) => {
   }
 });
 
+// 5b. POST / RESET STUDENT OR ROMBEL TASKS & SUBMISSIONS
+app.post('/api/admin/reset-student-tasks', (req: Request, res: Response) => {
+  try {
+    const { scope, studentId, rombel, school } = req.body || {};
+    if (scope !== 'student' && scope !== 'rombel') {
+      return res.status(400).json({ error: 'Scope reset tidak valid (harus student atau rombel).' });
+    }
+    if (scope === 'student' && !studentId) {
+      return res.status(400).json({ error: 'studentId wajib diisi untuk reset perorangan.' });
+    }
+    if (scope === 'rombel' && !rombel) {
+      return res.status(400).json({ error: 'rombel wajib diisi untuk reset per rombel.' });
+    }
+
+    const matchesTarget = (item: any) => {
+      if (!item) return false;
+      if (scope === 'student') {
+        return item.studentId === studentId;
+      }
+      const rombelMatch = item.rombel === rombel;
+      const schoolMatch = school ? item.school === school : true;
+      return rombelMatch && schoolMatch;
+    };
+
+    // 1. Filter submissions
+    const currentSubs = readServerSubmissions();
+    const nextSubs: Record<string, any> = {};
+    for (const [k, v] of Object.entries(currentSubs)) {
+      if (!matchesTarget(v) && !(scope === 'student' && k.startsWith(`${studentId}_`))) {
+        nextSubs[k] = v;
+      }
+    }
+    writeServerSubmissions(nextSubs);
+
+    // 2. Filter simulation logs
+    const simFile = path.join(__dirname, 'server_simulations.json');
+    if (fs.existsSync(simFile)) {
+      try {
+        const sims = JSON.parse(fs.readFileSync(simFile, 'utf-8'));
+        if (Array.isArray(sims)) {
+          fs.writeFileSync(simFile, JSON.stringify(sims.filter((s) => !matchesTarget(s)), null, 2), 'utf-8');
+        }
+      } catch {}
+    }
+
+    // 3. Filter essay logs
+    const essayFile = path.join(__dirname, 'server_essays.json');
+    if (fs.existsSync(essayFile)) {
+      try {
+        const essays = JSON.parse(fs.readFileSync(essayFile, 'utf-8'));
+        if (Array.isArray(essays)) {
+          fs.writeFileSync(essayFile, JSON.stringify(essays.filter((e) => !matchesTarget(e)), null, 2), 'utf-8');
+        }
+      } catch {}
+    }
+
+    res.json({
+      success: true,
+      message: scope === 'student'
+        ? `Semua tugas dan nilai siswa berhasil direset.`
+        : `Semua tugas dan nilai rombel ${rombel} berhasil direset.`,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal mereset tugas: ${e.message}` });
+  }
+});
+
 // ==========================================
 // SERVER TASKS & ACTIVITIES ASSIGNMENT
 // ==========================================

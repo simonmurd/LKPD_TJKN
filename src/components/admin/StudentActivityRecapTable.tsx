@@ -12,6 +12,7 @@ import { TeacherEssayGradingModal } from './TeacherEssayGradingModal';
 import {
   fetchSimulationLogsFromFirestore,
   fetchEssayLogsFromFirestore,
+  deleteStudentProgressFromFirestore,
 } from '../../lib/firebase';
 import {
   Search,
@@ -67,6 +68,34 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
     'all' | 'completed' | 'remedial' | 'too_fast' | 'cancelled' | 'pending'
   >('all');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'detail' | 'matrix'>('matrix');
+  const [resetTarget, setResetTarget] = useState<{
+    scope: 'student' | 'rombel';
+    studentId?: string;
+    studentName?: string;
+    rombel?: string;
+    school?: string;
+  } | null>(null);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
+
+  const handleConfirmReset = async () => {
+    if (!resetTarget) return;
+    setIsResetting(true);
+    try {
+      await fetch('/api/admin/reset-student-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resetTarget),
+      });
+      await deleteStudentProgressFromFirestore(resetTarget.scope, resetTarget);
+      await handleManualRefresh();
+      setResetTarget(null);
+    } catch (err) {
+      console.error('Gagal mereset tugas:', err);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   // Simulation logs and Essay logs from server
   const [simulationLogs, setSimulationLogs] = useState<SimulationLogEntry[]>([]);
@@ -399,54 +428,6 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
 
   return (
     <div className="space-y-4">
-      {/* Top Banner Alert for Veliyan Vinson or New Verified Activity */}
-      {filteredRows.some((r) => r.student.name.toLowerCase().includes('veliyan')) && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4 text-xs shadow-xs">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white font-mono font-black flex items-center justify-center text-base shadow-sm">
-              31
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-extrabold text-base text-emerald-950">
-                  Data Terverifikasi: VELIYAN VINSON
-                </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-200/70 text-emerald-900 font-mono font-bold text-[11px]">
-                  XII TJKT • SMK MUDITA
-                </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white font-mono font-bold text-[11px]">
-                  CBT: 93% • NA Rapor: 94 (A - Sangat Kompeten)
-                </span>
-              </div>
-              <p className="text-emerald-800 text-xs mt-1">
-                Modul Bab 8: Jaringan Nirkabel Outdoor • Simulasi LoS (95 Poin) • CBT 37/40 • Esai Dinilai (95 Poin).
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {onOpenChatWithStudent && (
-              <button
-                onClick={() => {
-                  const veliyan = students.find((s) => s.id === 'mudita_xii_31');
-                  if (veliyan) onOpenChatWithStudent(veliyan);
-                }}
-                className="px-3.5 py-2 rounded-xl bg-white border border-emerald-300 text-emerald-800 font-bold hover:bg-emerald-100 transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
-              >
-                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Kirim Pesan ke Veliyan</span>
-              </button>
-            )}
-            <button
-              onClick={() => setSearchQuery('Veliyan')}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>Sorot di Leger</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Metrics Summary Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -693,290 +674,168 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
         </div>
       </div>
 
-      {/* Structured Leger Table */}
-      <div className="bg-white border border-slate-200 rounded-3xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="p-4">Peserta Didik</th>
-                <th className="p-4">Rombel & Sekolah</th>
-                <th className="p-4">Modul (Bab)</th>
-                <th className="p-4 text-center">Part 1: Praktik ({weightSim}%)</th>
-                <th className="p-4 text-center">Part 2: CBT ({weightCbt}%)</th>
-                <th className="p-4 text-center">Part 3: Esai ({weightEssay}%)</th>
-                <th className="p-4 text-center">Nilai Akhir (NA)</th>
-                <th className="p-4 text-center">Status KKM</th>
-                <th className="p-4 text-right">Aksi Guru Pro</th>
-              </tr>
-            </thead>
+      {/* Action Bar: Reset Rombel */}
+      {filterClass !== 'all' && (
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() =>
+              setResetTarget({
+                scope: 'rombel',
+                rombel: filterClass,
+                school: filterSchool !== 'all' ? filterSchool : undefined,
+              })
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition cursor-pointer"
+            title={`Reset semua tugas & nilai untuk rombel ${filterClass}`}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset Tugas Rombel ({filterClass})
+          </button>
+        </div>
+      )}
 
-            <tbody className="divide-y divide-slate-100">
-              {filteredRows.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="p-12 text-center text-slate-400">
-                    <Users className="w-8 h-8 mx-auto mb-2 opacity-30 text-slate-500" />
-                    <p className="font-semibold text-slate-700">Tidak ada data kegiatan yang cocok</p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Coba sesuaikan kata kunci pencarian atau ubah filter di atas.
-                    </p>
-                  </td>
+      {/* Matrix Leger View (1-14 + Total + NA + Rank) */}
+      <div className="bg-white border border-slate-300 rounded-3xl shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-center text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold">
+                  <th rowSpan={2} className="p-2.5 border-r border-slate-300 w-12">
+                    NO
+                  </th>
+                  <th rowSpan={2} className="p-2.5 border-r border-slate-300 text-left min-w-[200px]">
+                    NAMA SISWA
+                  </th>
+                  <th colSpan={14} className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]">
+                    Nilai Total Per Bab (1 – 14)
+                  </th>
+                  <th colSpan={2} className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]">
+                    NILAI
+                  </th>
+                  <th rowSpan={2} className="p-2.5 w-14 font-extrabold border-r border-slate-300">
+                    Rank
+                  </th>
+                  <th rowSpan={2} className="p-2.5 w-16 font-extrabold">
+                    Reset
+                  </th>
                 </tr>
-              ) : (
-                filteredRows.map((row) => {
-                  const isHighlighted =
-                    searchQuery &&
-                    row.student.name.toLowerCase().includes(searchQuery.toLowerCase());
+                <tr className="bg-slate-50 border-b border-slate-300 text-slate-700 font-mono text-[11px]">
+                  {Array.from({ length: 14 }, (_, i) => i + 1).map((num) => (
+                    <th key={num} className="p-1.5 border-r border-slate-300 w-9">
+                      {num}
+                    </th>
+                  ))}
+                  <th className="p-1.5 border-r border-slate-300 w-14">Total</th>
+                  <th className="p-1.5 border-r border-slate-300 w-12">NA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {(() => {
+                  const filteredMatrixStudents = students.filter((s) => {
+                    const q = searchQuery.toLowerCase().trim();
+                    const matchSearch =
+                      !q ||
+                      s.name.toLowerCase().includes(q) ||
+                      s.noAbsen.includes(q) ||
+                      s.className.toLowerCase().includes(q);
+                    const matchSchool = filterSchool === 'all' || s.school === filterSchool;
+                    const matchClass = filterClass === 'all' || s.className === filterClass;
+                    return matchSearch && matchSchool && matchClass;
+                  });
 
-                  return (
-                    <tr
-                      key={row.key}
-                      className={`hover:bg-slate-50/80 transition ${
-                        isHighlighted ? 'bg-blue-50/40' : ''
-                      }`}
-                    >
-                      {/* 1. Student Identity */}
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 border border-slate-200">
-                            {row.student.noAbsen}
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-900 text-xs">
-                              {row.student.name}
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              ID: {row.student.id}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
+                  const matrixRows = filteredMatrixStudents.map((student) => {
+                    const babScores: Record<number, number> = {};
+                    let totalSum = 0;
+                    let completedBabs = 0;
 
-                      {/* 2. Rombel & School */}
-                      <td className="p-4">
-                        <div className="space-y-0.5">
-                          <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono font-bold text-[10px] border border-blue-200 inline-block">
-                            {row.student.className}
-                          </span>
-                          <div className="text-[11px] text-slate-500 font-medium truncate max-w-[140px]">
-                            {row.student.school.replace('SMK NEGERI 1 SINGKAWANG', 'SMKN 1').replace('SMK MUDITA SINGKAWANG', 'SMK Mudita')}
-                          </div>
-                        </div>
-                      </td>
+                    for (let babId = 1; babId <= 14; babId++) {
+                      const row = activityRows.find(
+                        (r) => r.student.id === student.id && r.bab.id === babId
+                      );
+                      const val = row ? row.compositeScore : 0;
+                      babScores[babId] = val;
+                      totalSum += val;
+                      if (val > 0) completedBabs++;
+                    }
 
-                      {/* 3. Module (Bab) */}
-                      <td className="p-4">
-                        <div className="space-y-0.5 max-w-[180px]">
-                          <span className="font-mono font-bold text-slate-900 text-xs">
-                            {row.bab.code}
-                          </span>
-                          <div className="text-[11px] text-slate-500 truncate" title={row.bab.title}>
-                            {row.bab.title}
-                          </div>
-                        </div>
-                      </td>
+                    const na = completedBabs > 0 ? Math.round(totalSum / completedBabs) : 0;
+                    return { student, babScores, totalSum, na };
+                  });
 
-                      {/* 4. Part 1: Praktik Simulasi */}
-                      <td className="p-4 text-center">
-                        {row.hasSim ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
-                            <Play className="w-3 h-3 text-emerald-600" />
-                            <span>{row.scoreSim} Poin</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px]">
-                            <Clock className="w-2.5 h-2.5" />
-                            <span>Belum</span>
-                          </span>
-                        )}
-                      </td>
+                  // Compute Rank based on totalSum descending
+                  const sortedTotals = [...matrixRows]
+                    .map((r) => r.totalSum)
+                    .sort((a, b) => b - a);
 
-                      {/* 5. Part 2: CBT Evaluation */}
-                      <td className="p-4 text-center">
-                        {row.examSub ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-black text-slate-900">
-                                {row.examSub.percentage}%
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                ({row.examSub.totalScore}/40)
-                              </span>
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              ⏱ {Math.floor(row.examSub.timeSpentSeconds / 60)}m {row.examSub.timeSpentSeconds % 60}s
-                            </div>
-                            {row.examSub.isFlaggedTooFast && (
-                              <span className="px-1.5 py-0.2 rounded bg-red-100 text-red-700 text-[9px] font-bold font-mono">
-                                ⚠ Terlalu Cepat
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px]">
-                            <Clock className="w-2.5 h-2.5" />
-                            <span>Belum Ujian</span>
-                          </span>
-                        )}
-                      </td>
-
-                      {/* 6. Part 3: Esai */}
-                      <td className="p-4 text-center">
-                        {row.hasEssay ? (
-                          <div className="flex flex-col items-center gap-1">
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                row.essayLog?.teacherScore !== undefined
-                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                  : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                  return matrixRows.map((r) => {
+                    const rank = sortedTotals.indexOf(r.totalSum) + 1;
+                    return (
+                      <tr key={r.student.id} className="hover:bg-blue-50/40 transition">
+                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-600">
+                          {r.student.noAbsen}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 text-left font-bold text-slate-900">
+                          {r.student.noAbsen} {r.student.name}
+                        </td>
+                        {Array.from({ length: 14 }, (_, i) => i + 1).map((num) => {
+                          const val = r.babScores[num] || 0;
+                          return (
+                            <td
+                              key={num}
+                              className={`p-1.5 border-r border-slate-200 font-mono ${
+                                val === 0
+                                  ? 'text-slate-300'
+                                  : val < 75
+                                  ? 'text-red-700 font-bold bg-red-50/50'
+                                  : 'text-slate-800 font-semibold'
                               }`}
                             >
-                              <PenTool className="w-2.5 h-2.5" />
-                              <span>
-                                {row.essayLog?.teacherScore !== undefined
-                                  ? `Guru: ${row.essayLog.teacherScore}`
-                                  : `AI: ${row.essayLog?.score || 80}`}
-                              </span>
-                            </span>
-                            <button
-                              onClick={() =>
-                                setGradingTarget({
-                                  student: row.student,
-                                  bab: row.bab,
-                                  essayLog: row.essayLog,
-                                })
-                              }
-                              className="text-[10px] text-blue-600 hover:text-blue-800 font-bold hover:underline"
-                            >
-                              Koreksi Esai ✎
-                            </button>
-                          </div>
-                        ) : (
+                              {val}
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 border-r border-slate-200 font-mono font-extrabold text-slate-900 bg-slate-50">
+                          {r.totalSum}
+                        </td>
+                        <td
+                          className={`p-2 border-r border-slate-200 font-mono font-extrabold ${
+                            r.na === 0
+                              ? 'text-slate-400'
+                              : r.na < 75
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {r.na}
+                        </td>
+                        <td className="p-2 border-r border-slate-200 font-mono font-extrabold text-blue-700">
+                          {rank}
+                        </td>
+                        <td className="p-1.5">
                           <button
+                            type="button"
                             onClick={() =>
-                              setGradingTarget({
-                                student: row.student,
-                                bab: row.bab,
-                                essayLog: row.essayLog,
+                              setResetTarget({
+                                scope: 'student',
+                                studentId: r.student.id,
+                                studentName: r.student.name,
                               })
                             }
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-medium"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                            title={`Reset semua tugas & nilai ${r.student.name}`}
                           >
-                            <PenTool className="w-2.5 h-2.5" />
-                            <span>Beri Nilai Esai</span>
+                            <RotateCcw className="w-3.5 h-3.5 mx-auto" />
                           </button>
-                        )}
-                      </td>
-
-                      {/* 7. Nilai Akhir (NA) & Predikat Rapor */}
-                      <td className="p-4 text-center">
-                        {row.compositeScore > 0 ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-black text-slate-900">
-                                {row.compositeScore}
-                              </span>
-                              <span
-                                className={`px-2 py-0.2 rounded-md font-mono text-[11px] font-black ${
-                                  row.predikat === 'A'
-                                    ? 'bg-emerald-600 text-white'
-                                    : row.predikat === 'B'
-                                    ? 'bg-blue-600 text-white'
-                                    : row.predikat === 'C'
-                                    ? 'bg-amber-600 text-white'
-                                    : 'bg-red-600 text-white'
-                                }`}
-                              >
-                                {row.predikat}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              Skala Rapor
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 font-mono">-</span>
-                        )}
-                      </td>
-
-                      {/* 8. Final KKM Status */}
-                      <td className="p-4 text-center">
-                        {row.isCancelled ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-100 text-red-800 text-[11px] font-bold">
-                            <XCircle className="w-3.5 h-3.5 text-red-600" />
-                            <span>Dibatalkan</span>
-                          </span>
-                        ) : row.isPassed ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>TUNTAS KKM</span>
-                          </span>
-                        ) : row.compositeScore > 0 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-bold">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                            <span>REMEDIAL</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px]">
-                            <span>Belum Ada Nilai</span>
-                          </span>
-                        )}
-                      </td>
-
-                      {/* 9. Teacher Actions */}
-                      <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {onOpenChatWithStudent && (
-                            <button
-                              onClick={() => onOpenChatWithStudent(row.student)}
-                              className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
-                              title={`Kirim Pesan ke ${row.student.name}`}
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-
-                          {row.isCancelled ? (
-                            <button
-                              onClick={() => onRestoreSubmission(row.key)}
-                              className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 transition text-[11px] flex items-center gap-1"
-                              title="Pulihkan ujian yang dibatalkan"
-                            >
-                              <RotateCcw className="w-3 h-3" />
-                              <span>Pulihkan</span>
-                            </button>
-                          ) : row.examSub ? (
-                            <button
-                              onClick={() => {
-                                const defReason = row.examSub?.isFlaggedTooFast
-                                  ? 'Pengerjaan terlalu cepat (< 2 menit)'
-                                  : 'Perlu pengulangan materi (tidak memenuhi SOP)';
-                                setCancelReasonInput(defReason);
-                                setCancellingTarget({
-                                  key: row.key,
-                                  name: row.student.name,
-                                  babCode: row.bab.code,
-                                  defaultReason: defReason,
-                                });
-                              }}
-                              className="px-2 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 font-semibold hover:bg-red-100 transition text-[11px]"
-                              title="Batalkan hasil ujian siswa"
-                            >
-                              Batalkan
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 font-mono">-</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
       {/* In-Page Modal for Submission Cancellation */}
       {cancellingTarget && (
@@ -1044,6 +903,55 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
             handleManualRefresh();
           }}
         />
+      )}
+
+      {/* In-Page Modal for Resetting Student or Rombel Tasks */}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-red-600">
+              <RotateCcw className="w-6 h-6" />
+              <h3 className="font-bold text-base text-slate-900">
+                {resetTarget.scope === 'student'
+                  ? `Reset Semua Tugas & Nilai Siswa`
+                  : `Reset Semua Tugas & Nilai Rombel ${resetTarget.rombel}`}
+              </h3>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {resetTarget.scope === 'student' ? (
+                <>
+                  Anda akan mereset seluruh riwayat pengerjaan (CBT, Simulasi, dan Esai) milik{' '}
+                  <strong>{resetTarget.studentName}</strong>. Siswa dapat mengerjakan ulang semua tugas dari awal.
+                </>
+              ) : (
+                <>
+                  Anda akan mereset seluruh riwayat pengerjaan (CBT, Simulasi, dan Esai) untuk semua siswa di rombel{' '}
+                  <strong>{resetTarget.rombel}</strong>. Seluruh siswa di rombel ini dapat mengerjakan ulang dari awal.
+                </>
+              )}
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setResetTarget(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={handleConfirmReset}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition cursor-pointer disabled:opacity-50"
+              >
+                {isResetting ? 'Mereset...' : 'Ya, Reset Sekarang'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
