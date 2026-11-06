@@ -9,8 +9,13 @@ import {
 import { RombelAssignmentManager } from './RombelAssignmentManager';
 import { TeacherDirectChatAndProgress } from './TeacherDirectChatAndProgress';
 import { TeacherAiAssistantTab } from './TeacherAiAssistantTab';
+import { StudentActivityRecapTable } from './StudentActivityRecapTable';
+import { TeacherAnalyticsDashboard } from './TeacherAnalyticsDashboard';
 import { getUnreadCountForTeacher } from '../../data/directMessagesData';
+import { ExamSessionConfigModal } from './ExamSessionConfigModal';
+import { CbtItemAnalysisModal } from './CbtItemAnalysisModal';
 import {
+  BarChart3,
   Users,
   Search,
   Filter,
@@ -37,6 +42,7 @@ import {
   Check,
   MessageSquare,
   Sparkles,
+  KeyRound,
 } from 'lucide-react';
 
 interface TeacherAdminDashboardProps {
@@ -71,8 +77,10 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
   onRefreshSubmissions,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'monitoring' | 'chat_progress' | 'ai_assistant' | 'rombel_assignments' | 'students_crud' | 'simulation_logs'
+    'monitoring' | 'analytics' | 'chat_progress' | 'ai_assistant' | 'rombel_assignments' | 'students_crud' | 'simulation_logs'
   >('monitoring');
+  const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | undefined>(undefined);
+  const [selectedChatTab, setSelectedChatTab] = useState<'progress' | 'chat'>('progress');
   const [unreadMessagesCount, setUnreadMessagesCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -94,9 +102,17 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
     };
   }, []);
 
+  // Proctoring & Item Analysis Modal States
+  const [isExamConfigOpen, setIsExamConfigOpen] = useState<boolean>(false);
+  const [isItemAnalysisOpen, setIsItemAnalysisOpen] = useState<boolean>(false);
+
   // Student CRUD Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [editingStudent, setEditingStudent] = useState<StudentProfile | null>(null);
+  const [deletingStudentTarget, setDeletingStudentTarget] = useState<{ id: string; name: string } | null>(null);
+  const [showResetStudentsModal, setShowResetStudentsModal] = useState<boolean>(false);
+  const [showClearDummyModal, setShowClearDummyModal] = useState<boolean>(false);
+  const [isClearingDummy, setIsClearingDummy] = useState<boolean>(false);
   const [formName, setFormName] = useState<string>('');
   const [formAbsen, setFormAbsen] = useState<string>('');
   const [formClass, setFormClass] = useState<string>('X TJK');
@@ -326,9 +342,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
   };
 
   const handleDeleteStudent = (id: string, name: string) => {
-    if (window.confirm(`Hapus data siswa "${name}" dari sistem?`)) {
-      onUpdateStudents(students.filter((s) => s.id !== id));
-    }
+    setDeletingStudentTarget({ id, name });
   };
 
   const handleConfirmCancel = () => {
@@ -361,19 +375,46 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* Quick Stats Grid */}
-          <div className="flex items-center gap-3">
-            <div className="px-4 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-              <div className="text-xs text-slate-500 font-mono">Siswa Terdaftar</div>
-              <div className="text-lg font-bold text-slate-900">{students.length}</div>
+          {/* Quick Stats & Proctoring Controls Grid */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setIsExamConfigOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold transition shadow-2xs text-xs cursor-pointer"
+              title="Atur token ujian, durasi waktu countdown, dan sesi penilaian CBT"
+            >
+              <KeyRound className="w-4 h-4 text-blue-600" />
+              <span>Token Ujian & Waktu CBT</span>
+            </button>
+
+            <button
+              onClick={() => setIsItemAnalysisOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold transition shadow-2xs text-xs cursor-pointer"
+              title="Lihat analisis butir soal, kunci jawaban lengkap, dan kisi-kisi HOTS 40 butir"
+            >
+              <FileQuestion className="w-4 h-4 text-amber-700" />
+              <span>Kisi-Kisi & Bank Soal</span>
+            </button>
+
+            <button
+              onClick={() => setShowClearDummyModal(true)}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold transition shadow-2xs text-xs cursor-pointer"
+              title="Bersihkan semua data dummy/uji coba (nilai CBT, simulasi, esai, chat, dan radar)"
+            >
+              <Trash2 className="w-4 h-4 text-red-600" />
+              <span>Bersihkan Data Dummy</span>
+            </button>
+
+            <div className="px-3.5 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+              <div className="text-[10px] text-slate-500 font-mono">Siswa</div>
+              <div className="text-base font-bold text-slate-900">{students.length}</div>
             </div>
-            <div className="px-4 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-              <div className="text-xs text-slate-500 font-mono">Total Hasil CBT</div>
-              <div className="text-lg font-bold text-slate-900">{totalSubmissionsCount}</div>
+            <div className="px-3.5 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+              <div className="text-[10px] text-slate-500 font-mono">Hasil CBT</div>
+              <div className="text-base font-bold text-slate-900">{totalSubmissionsCount}</div>
             </div>
-            <div className="px-4 py-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-center">
-              <div className="text-xs text-amber-700 font-mono font-bold">Terlalu Cepat</div>
-              <div className="text-lg font-bold text-amber-900">{tooFastCount}</div>
+            <div className="px-3.5 py-2 rounded-2xl bg-amber-50 border border-amber-200 text-center">
+              <div className="text-[10px] text-amber-700 font-mono font-bold">Terlalu Cepat</div>
+              <div className="text-base font-bold text-amber-900">{tooFastCount}</div>
             </div>
           </div>
         </div>
@@ -390,7 +431,19 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
           }`}
         >
           <Award className="w-4 h-4" />
-          <span>Pemantauan Hasil Ujian ({submissionList.length})</span>
+          <span>Leger & Hasil Ujian ({submissionList.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+            activeTab === 'analytics'
+              ? 'bg-blue-600 text-white shadow-xs font-bold'
+              : 'text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/80'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-emerald-600" />
+          <span>Statistik & Visualisasi Data (Recharts)</span>
         </button>
 
         <button
@@ -398,14 +451,22 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
             activeTab === 'chat_progress'
               ? 'bg-blue-600 text-white shadow-xs font-bold'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              : 'text-blue-700 bg-blue-50/70 hover:bg-blue-100/80'
           }`}
         >
-          <MessageSquare className="w-4 h-4 text-blue-500" />
-          <span>Chat & Cek Progres Siswa</span>
-          {unreadMessagesCount > 0 && (
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <MessageSquare className="w-4 h-4 text-blue-600" />
+          <span>Radar Lab & Live Chat</span>
+          {unreadMessagesCount > 0 ? (
             <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
               {unreadMessagesCount} baru
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[9px] font-mono font-bold">
+              LIVE
             </span>
           )}
         </button>
@@ -468,6 +529,8 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
           rombelAssignments={rombelAssignments}
           onCancelSubmission={onCancelSubmission}
           onRestoreSubmission={onRestoreSubmission}
+          initialSelectedStudentId={selectedChatStudentId}
+          initialTab={selectedChatTab}
         />
       )}
 
@@ -490,229 +553,37 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
         />
       )}
 
-      {/* TAB 2: MONITORING SUBMISSIONS & CANCELLATIONS */}
+      {/* TAB: MONITORING SUBMISSIONS & REKAP LENGKAP HASIL KEGIATAN SISWA */}
       {activeTab === 'monitoring' && (
-        <div className="space-y-4">
-          {/* Quick Highlight Banner: Siswa Baru Menyelesaikan Ujian (VELIYAN VINSON) */}
-          {submissionList.some((s) => s.studentName?.toLowerCase().includes('veliyan')) && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold font-mono text-sm shadow-xs">
-                  31
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-sm text-emerald-950">
-                      Hasil Ujian CBT Baru Masuk: VELIYAN VINSON
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-mono font-bold text-[10px]">
-                      XII TJKT • SMK MUDITA
-                    </span>
-                  </div>
-                  <p className="text-emerald-700 text-xs mt-0.5">
-                    Siswa telah tuntas mengerjakan evaluasi CBT dengan nilai <strong>93% (LULUS KKM)</strong> • Durasi 12 menit 25 detik (Normal).
-                  </p>
-                </div>
-              </div>
+        <StudentActivityRecapTable
+          students={students}
+          submissions={submissions}
+          babs={babs}
+          rombelAssignments={rombelAssignments}
+          onCancelSubmission={onCancelSubmission}
+          onRestoreSubmission={onRestoreSubmission}
+          onRefresh={() => {
+            if (onRefreshSubmissions) onRefreshSubmissions();
+          }}
+          onOpenChatWithStudent={(st) => {
+            setSelectedChatStudentId(st.id);
+            setSelectedChatTab('chat');
+            setActiveTab('chat_progress');
+          }}
+        />
+      )}
 
-              <button
-                onClick={() => {
-                  setSearchQuery('Veliyan');
-                  setFilterSchool('all');
-                  setFilterClass('all');
-                  setFilterBab('all');
-                  setFilterStatus('all');
-                }}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Tampilkan Langsung Hasil Veliyan</span>
-              </button>
-            </div>
-          )}
-
-          {/* Filter Bar */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
-              <Search className="w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari nama siswa (contoh: Veliyan), rombel, atau bab..."
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {onRefreshSubmissions && (
-                <button
-                  onClick={() => {
-                    setIsRefreshing(true);
-                    onRefreshSubmissions();
-                    setTimeout(() => setIsRefreshing(false), 800);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold transition shadow-2xs cursor-pointer"
-                  title="Sinkronkan data ujian terbaru secara langsung dari seluruh siswa"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  <span>{isRefreshing ? 'Sinkronisasi...' : 'Segarkan Data'}</span>
-                </button>
-              )}
-
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-700 font-medium"
-              >
-                <option value="all">Semua Status</option>
-                <option value="too_fast">⚠ Terlalu Cepat (Flagged)</option>
-                <option value="cancelled">Dibatalkan Guru</option>
-                <option value="passed">Tuntas KKM (&ge; 75)</option>
-                <option value="failed">Remedial (&lt; 75)</option>
-              </select>
-
-              <select
-                value={filterBab}
-                onChange={(e) => setFilterBab(e.target.value)}
-                className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-700 font-medium"
-              >
-                <option value="all">Semua Bab</option>
-                {babs.map((b) => (
-                  <option key={b.id} value={String(b.id)}>
-                    {b.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Submissions Table */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-700">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-mono text-[10px]">
-                  <tr>
-                    <th className="p-3.5">Peserta Didik</th>
-                    <th className="p-3.5">Rombel & Sekolah</th>
-                    <th className="p-3.5">Modul (Bab)</th>
-                    <th className="p-3.5">Durasi</th>
-                    <th className="p-3.5">Nilai CBT</th>
-                    <th className="p-3.5">Status</th>
-                    <th className="p-3.5 text-right">Aksi Guru</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredSubmissions.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400">
-                        Tidak ada riwayat hasil ujian yang cocok dengan kriteria pencarian.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSubmissions.map((sub) => {
-                      const isTooFast = sub.isFlaggedTooFast;
-                      const isCancelled = sub.status === 'cancelled_by_teacher';
-
-                      return (
-                        <tr
-                          key={sub.key}
-                          className={`hover:bg-slate-50/80 transition ${
-                            isCancelled
-                              ? 'bg-red-50/30'
-                              : isTooFast
-                              ? 'bg-amber-50/30'
-                              : ''
-                          }`}
-                        >
-                          <td className="p-3.5">
-                            <div className="font-bold text-slate-900">{sub.studentName}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              Waktu: {new Date(sub.date).toLocaleString('id-ID')}
-                            </div>
-                          </td>
-                          <td className="p-3.5">
-                            <div className="font-semibold text-slate-800">{sub.className}</div>
-                            <div className="text-[11px] text-slate-500 line-clamp-1">{sub.school}</div>
-                          </td>
-                          <td className="p-3.5">
-                            <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                              Bab {sub.babId}
-                            </span>
-                          </td>
-                          <td className="p-3.5 font-mono">
-                            <div className="flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{Math.floor(sub.timeSpentSeconds / 60)}m {sub.timeSpentSeconds % 60}s</span>
-                            </div>
-                            {isTooFast && (
-                              <div className="text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-0.5">
-                                <AlertTriangle className="w-3 h-3" />
-                                Terlalu Cepat (&lt; 2m)
-                              </div>
-                            )}
-                            {Boolean(sub.tabViolations && sub.tabViolations > 0) && (
-                              <div className="text-[10px] font-bold text-red-600 flex items-center gap-1 mt-0.5">
-                                <ShieldAlert className="w-3 h-3 text-red-500" />
-                                {sub.tabViolations}x Pindah Tab (Kecurangan)
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3.5">
-                            <div className="font-bold text-sm text-slate-900">{sub.percentage}%</div>
-                            <div className="text-[10px] text-slate-500">
-                              {sub.totalScore}/40 Poin
-                            </div>
-                          </td>
-                          <td className="p-3.5">
-                            {isCancelled ? (
-                              <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-bold border border-red-200">
-                                Dibatalkan Guru
-                              </span>
-                            ) : sub.isPassed ? (
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200">
-                                TUNTAS KKM
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200">
-                                REMEDIAL
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-3.5 text-right">
-                            {isCancelled ? (
-                              <button
-                                onClick={() => onRestoreSubmission(sub.key)}
-                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] transition shadow-2xs"
-                                title="Pulihkan status ujian siswa"
-                              >
-                                Pulihkan
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCancellingKey(sub.key);
-                                  setCancelReasonInput(
-                                    isTooFast
-                                      ? `Pengerjaan hanya ${Math.floor(sub.timeSpentSeconds)} detik (terindikasi tidak wajar/menebak)`
-                                      : 'Pengerjaan tidak sesuai SOP kelas'
-                                  );
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-semibold text-[11px] transition"
-                              >
-                                Batalkan Ujian
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+      {/* TAB: STATISTIK & VISUALISASI DATA (RECHARTS) */}
+      {activeTab === 'analytics' && (
+        <TeacherAnalyticsDashboard
+          students={students}
+          submissions={submissions}
+          babs={babs}
+          rombelAssignments={rombelAssignments}
+          onRefresh={() => {
+            if (onRefreshSubmissions) onRefreshSubmissions();
+          }}
+        />
       )}
 
       {/* TAB 3: STUDENTS MASTER DATA (CRUD) */}
@@ -730,7 +601,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={onResetStudentsToDefault}
+                onClick={() => setShowResetStudentsModal(true)}
                 className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"
               >
                 Reset Default (140 Siswa)
@@ -1048,6 +919,167 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
                 className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold shadow-md shadow-red-500/20"
               >
                 Ya, Batalkan Hasil Ujian
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRM DELETE STUDENT */}
+      {deletingStudentTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-xs space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-red-600">
+              <Trash2 className="w-6 h-6 shrink-0" />
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Hapus Data Siswa</h3>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  {deletingStudentTarget.name}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              Apakah Anda yakin ingin menghapus siswa <strong>{deletingStudentTarget.name}</strong> dari daftar presensi dan evaluasi?
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setDeletingStudentTarget(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => {
+                  onUpdateStudents(students.filter((s) => s.id !== deletingStudentTarget.id));
+                  setDeletingStudentTarget(null);
+                }}
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold shadow-md shadow-red-500/20 transition cursor-pointer"
+              >
+                Ya, Hapus Siswa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRM RESET STUDENTS TO DEFAULT */}
+      {showResetStudentsModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-xs space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-600">
+              <RotateCcw className="w-6 h-6 shrink-0" />
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Reset ke 140 Siswa Default?</h3>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  SMKN 1 & SMK Mudita Singkawang
+                </p>
+              </div>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              Daftar siswa akan dikembalikan ke data awal lengkap (SMK Negeri 1 Singkawang X TJK & XI TJK, serta SMK Mudita Singkawang XI TJKT & XII TJKT). Perubahan khusus yang ditambahkan manual akan direset.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowResetStudentsModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => {
+                  onResetStudentsToDefault();
+                  setShowResetStudentsModal(false);
+                }}
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md shadow-amber-500/20 transition cursor-pointer"
+              >
+                Ya, Kembalikan Default
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CBT Exam Proctoring / Token Config Modal */}
+      {isExamConfigOpen && (
+        <ExamSessionConfigModal
+          onClose={() => setIsExamConfigOpen(false)}
+        />
+      )}
+
+      {/* CBT Item Analysis & Discussion Modal */}
+      {isItemAnalysisOpen && (
+        <CbtItemAnalysisModal
+          babs={babs}
+          selectedBabId={babs[0]?.id || 1}
+          onClose={() => setIsItemAnalysisOpen(false)}
+        />
+      )}
+
+      {/* Clear Dummy Data Confirmation Modal */}
+      {showClearDummyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-red-100 text-red-700">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-base text-slate-900">
+                  Bersihkan Semua Data Dummy?
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Tindakan ini akan mengosongkan data uji coba/dummy.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1.5">
+              <p className="font-semibold text-slate-900">Yang akan dibersihkan:</p>
+              <ul className="list-disc pl-4 space-y-1 text-slate-600">
+                <li>Semua riwayat nilai CBT, Simulasi, dan Esai uji coba</li>
+                <li>Riwayat chat dummy & status radar online uji coba</li>
+              </ul>
+              <p className="text-[11px] text-emerald-700 font-semibold pt-1">
+                ✓ Master Data 140 Siswa & Pengaturan Rombel tetap aman.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isClearingDummy}
+                onClick={() => setShowClearDummyModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isClearingDummy}
+                onClick={async () => {
+                  setIsClearingDummy(true);
+                  try {
+                    await fetch('/api/admin/clear-dummy-data', { method: 'POST' });
+                    localStorage.removeItem('tjkn_submissions_v1');
+                    localStorage.removeItem('tjkn_simulation_logs');
+                    localStorage.removeItem('tjkn_direct_messages_v1');
+                    localStorage.removeItem('tjkn_lab_presence_cache');
+                    window.dispatchEvent(new CustomEvent('tjkn_direct_messages_updated'));
+                    if (onRefreshSubmissions) onRefreshSubmissions();
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setIsClearingDummy(false);
+                    setShowClearDummyModal(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs"
+              >
+                {isClearingDummy ? 'Membersihkan...' : 'Ya, Bersihkan Sekarang'}
               </button>
             </div>
           </div>

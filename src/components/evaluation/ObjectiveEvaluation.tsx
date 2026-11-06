@@ -36,6 +36,7 @@ import {
 import confetti from 'canvas-confetti';
 import { RombelAccessLockedNotice } from '../curriculum/RombelAccessLockedNotice';
 import { isSectionAccessibleForStudent, getAssignmentForStudent } from '../../data/rombelAssignments';
+import { saveSubmissionToFirestore } from '../../lib/firebase';
 
 interface ObjectiveEvaluationProps {
   bab: CurriculumBab;
@@ -85,6 +86,7 @@ export const ObjectiveEvaluation: React.FC<ObjectiveEvaluationProps> = ({
 
   // Confirmation modal before submit
   const [showConfirmSubmitModal, setShowConfirmSubmitModal] = useState<boolean>(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
 
   // Sync to Google Apps Script state
   const [appsScriptStatus, setAppsScriptStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
@@ -144,6 +146,17 @@ export const ObjectiveEvaluation: React.FC<ObjectiveEvaluationProps> = ({
     }, 1000);
     return () => clearInterval(interval);
   }, [isSubmitted, userRole]);
+
+  // Dispatch current CBT question detail for live lab radar
+  useEffect(() => {
+    if (userRole === 'siswa' && !isSubmitted) {
+      window.dispatchEvent(
+        new CustomEvent('tjkn_active_item_detail', {
+          detail: { detail: `Soal #${activeQuestionIdx + 1}/40` },
+        })
+      );
+    }
+  }, [activeQuestionIdx, userRole, isSubmitted]);
 
   // Anti-Cheat: Listen for Tab Switch & Window Blur during active exam
   useEffect(() => {
@@ -303,6 +316,9 @@ export const ObjectiveEvaluation: React.FC<ObjectiveEvaluationProps> = ({
       onSaveSubmission(submissionPayload);
     }
 
+    // Save directly to Firebase Firestore Cloud
+    saveSubmissionToFirestore(submissionPayload);
+
     // Clear draft from localStorage
     try {
       localStorage.removeItem(draftKey);
@@ -356,21 +372,24 @@ export const ObjectiveEvaluation: React.FC<ObjectiveEvaluationProps> = ({
   };
 
   const handleResetExam = () => {
-    if (window.confirm('Ulangi ujian CBT dari awal? Seluruh draft jawaban dan catatan waktu akan direset.')) {
-      setSelectedStandard({});
-      setSelectedComplex({});
-      setRaguRaguMap({});
-      setIsSubmitted(false);
-      setSecondsElapsed(0);
-      setTabViolations(0);
-      setActiveQuestionIdx(0);
-      setAppsScriptStatus('idle');
-      try {
-        localStorage.removeItem(draftKey);
-      } catch (e) {
-        // ignore
-      }
+    setShowResetConfirmModal(true);
+  };
+
+  const handlePerformReset = () => {
+    setSelectedStandard({});
+    setSelectedComplex({});
+    setRaguRaguMap({});
+    setIsSubmitted(false);
+    setSecondsElapsed(0);
+    setTabViolations(0);
+    setActiveQuestionIdx(0);
+    setAppsScriptStatus('idle');
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (e) {
+      // ignore
     }
+    setShowResetConfirmModal(false);
   };
 
   const formatTimer = (sec: number) => {
@@ -1280,6 +1299,42 @@ export const ObjectiveEvaluation: React.FC<ObjectiveEvaluationProps> = ({
                 className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md shadow-blue-500/20 active:scale-95 transition"
               >
                 Ya, Kumpulkan Ujian
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: RESET EXAM CONFIRMATION */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-xs space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-600">
+              <RotateCcw className="w-6 h-6 shrink-0" />
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Ulangi Ujian CBT dari Awal?</h3>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  {bab.code} • 40 Butir Soal
+                </p>
+              </div>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              Seluruh draft lembar jawaban (20 soal standar dan 20 soal kompleks), tanda ragu-ragu, serta catatan waktu pengerjaan akan dikosongkan kembali ke awal.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowResetConfirmModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handlePerformReset}
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md shadow-amber-500/20 active:scale-95 transition"
+              >
+                Ya, Mulai Ulang
               </button>
             </div>
           </div>

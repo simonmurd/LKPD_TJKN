@@ -220,8 +220,11 @@ export interface EssayLogEntry {
   questionTitle: string;
   studentAnswer: string;
   wordCount: number;
-  score?: number;
+  score?: number; // AI score or initial score
   letterGrade?: string;
+  teacherScore?: number; // Manual override by teacher (0-100)
+  teacherFeedback?: string; // Manual teacher notes
+  gradedAt?: string;
   syncedToAppsScript?: boolean;
 }
 
@@ -240,3 +243,31 @@ export interface DirectChatMessage {
   babReference?: number;
   tag?: 'teguran' | 'pengingat' | 'apresiasi' | 'bimbingan' | 'umum';
 }
+
+export interface ExamConfig {
+  tokenEnabled: boolean;
+  examToken: string;
+  durationMinutes: number;
+  sessionTitle: string;
+  updatedAt: string;
+}
+
+export interface UserPresence {
+  userId: string;
+  role: 'siswa' | 'guru';
+  userName: string;
+  noAbsen?: string;
+  className?: string;
+  school?: string;
+  currentActivity: string;
+  activityCategory: 'cbt' | 'simulation' | 'essay' | 'material' | 'idle';
+  babId?: number;
+  babCode?: string;
+  babTitle?: string;
+  activeItemDetail?: string; // e.g. "Soal #14/40", "Tahap 3 Splicing FO", "Esai Studi Kasus 1"
+  lastHeartbeat: string;
+  isOnline: boolean;
+  isTypingTo?: string; // studentId or 'teacher_simon'
+  deviceLabel?: string; // e.g. "PC-14 Lab TJKT"
+}
+

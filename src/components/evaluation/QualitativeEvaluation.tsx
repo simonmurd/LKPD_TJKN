@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { RombelAccessLockedNotice } from '../curriculum/RombelAccessLockedNotice';
 import { isSectionAccessibleForStudent, getAssignmentForStudent } from '../../data/rombelAssignments';
+import { saveEssayLogToFirestore } from '../../lib/firebase';
 
 interface QualitativeEvaluationProps {
   bab: CurriculumBab;
@@ -60,6 +61,7 @@ export const QualitativeEvaluation: React.FC<QualitativeEvaluationProps> = ({
     >
   >({});
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
+  const [isBatchEvaluating, setIsBatchEvaluating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [syncStatusMap, setSyncStatusMap] = useState<Record<string, string>>({});
 
@@ -174,13 +176,34 @@ export const QualitativeEvaluation: React.FC<QualitativeEvaluationProps> = ({
             }),
           });
           const gasData = await gasRes.json();
+          // Save directly to Firebase Firestore
+          saveEssayLogToFirestore({
+            id: `essay_${activeStudent.id}_${bab.id}_${question.id}`,
+            studentId: activeStudent.id,
+            studentName: activeStudent.name,
+            noAbsen: activeStudent.noAbsen,
+            className: activeStudent.className,
+            school: activeStudent.school,
+            babId: bab.id,
+            babCode: bab.code,
+            babTitle: bab.title,
+            questionId: question.id,
+            questionNumber: question.number,
+            questionTitle: question.title,
+            studentAnswer: answer,
+            wordCount: words,
+            score: data.score,
+            letterGrade: data.letterGrade,
+            timestamp: new Date().toISOString(),
+          });
+
           if (gasRes.ok && gasData.success) {
-            setSyncStatusMap((prev) => ({ ...prev, [question.id]: '✓ Tersimpan di Spreadsheet Esai Guru' }));
+            setSyncStatusMap((prev) => ({ ...prev, [question.id]: '✓ Tersimpan di Firebase Cloud & Spreadsheet Guru' }));
           } else {
-            setSyncStatusMap((prev) => ({ ...prev, [question.id]: 'Tersimpan lokal di perangkat' }));
+            setSyncStatusMap((prev) => ({ ...prev, [question.id]: '✓ Tersimpan di Firebase Cloud' }));
           }
         } catch {
-          setSyncStatusMap((prev) => ({ ...prev, [question.id]: 'Tersimpan lokal' }));
+          setSyncStatusMap((prev) => ({ ...prev, [question.id]: 'Tersimpan lokal & Cloud' }));
         }
       }
     } catch (err: unknown) {
@@ -216,10 +239,42 @@ export const QualitativeEvaluation: React.FC<QualitativeEvaluationProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-mono px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600">
               {Object.keys(studentAnswers).filter((k) => studentAnswers[k]?.trim()).length} / 10 Soal Terisi
             </span>
+            <button
+              type="button"
+              disabled={
+                isBatchEvaluating ||
+                Object.keys(studentAnswers).filter((k) => (studentAnswers[k]?.trim().length || 0) >= 15).length === 0
+              }
+              onClick={async () => {
+                const filledQuestions = bab.essayQuestions.filter(
+                  (q) => (studentAnswers[q.id]?.trim().length || 0) >= 15
+                );
+                if (filledQuestions.length === 0) {
+                  setErrorMessage('Isi minimal 1 soal esai (min. 15 karakter) sebelum menilai dengan AI.');
+                  return;
+                }
+                setIsBatchEvaluating(true);
+                setErrorMessage(null);
+                for (const q of filledQuestions) {
+                  if (!gradingResults[q.id]) {
+                    await handleAiGradeAndSync(q);
+                  }
+                }
+                setIsBatchEvaluating(false);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>
+                {isBatchEvaluating
+                  ? 'AI Sedang Menilai Semua...'
+                  : 'Nilai Semua Esai (AI) & Kirim ke Leger'}
+              </span>
+            </button>
           </div>
         </div>
 

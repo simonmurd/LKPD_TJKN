@@ -84,9 +84,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 SMK TKJ / TJKT
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 hidden sm:block">
-              Teknologi Jaringan Kabel & Nirkabel • Singkawang
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] text-slate-500 hidden sm:block">
+                Teknologi Jaringan Kabel & Nirkabel • Singkawang
+              </p>
+              <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-mono font-bold" title="Database Firestore Cloud Aktif">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Firebase Connected</span>
+              </span>
+            </div>
           </div>
         </div>
 

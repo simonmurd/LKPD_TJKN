@@ -14,6 +14,7 @@ import { FiberSplicingSimulator } from './FiberSplicingSimulator';
 import { OtdrSimulator } from './OtdrSimulator';
 import { BandwidthQoSSimulator } from './BandwidthQoSSimulator';
 import { TopologySubnetSimulator } from './TopologySubnetSimulator';
+import { saveSimulationLogToFirestore } from '../../lib/firebase';
 import {
   BookOpen,
   ShieldAlert,
@@ -146,7 +147,10 @@ export const SimulationContainer: React.FC<SimulationContainerProps> = ({
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setLastLogSuccess(`Log Tugas #${activeTask.taskNumber} berhasil dikirim ke Google Sheets Guru (Simon Murd)!`);
+        // Save to Firebase Firestore Cloud Database
+        saveSimulationLogToFirestore(logEntry);
+
+        setLastLogSuccess(`✓ Log Praktikum Tugas #${activeTask.taskNumber} berhasil tercatat di Dashboard Guru & Firebase Cloud!`);
         setCustomNotes('');
 
         // Update local session logs

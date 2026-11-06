@@ -37,8 +37,14 @@ import { TeacherLoginModal } from './components/auth/TeacherLoginModal';
 import { AiTutorDrawer } from './components/ai/AiTutorDrawer';
 import { AiQuestionGeneratorModal } from './components/ai/AiQuestionGeneratorModal';
 import { StudentDirectChatModal } from './components/student/StudentDirectChatModal';
-import { getUnreadCountForStudent } from './data/directMessagesData';
-import { CheckCircle2, ShieldAlert } from 'lucide-react';
+import { getUnreadCountForStudent, syncMessagesWithServer } from './data/directMessagesData';
+import {
+  saveSubmissionToFirestore,
+  fetchSubmissionsFromFirestore,
+} from './lib/firebase';
+import { sendPresenceHeartbeat } from './services/presenceService';
+import { playChatNotificationChime } from './utils/audioChime';
+import { CheckCircle2, ShieldAlert, MessageSquare, Database } from 'lucide-react';
 
 export default function App() {
   const [babs, setBabs] = useState<CurriculumBab[]>([]);
@@ -71,12 +77,19 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
 
   // Direct Messages Unread Listener for Active Student
+  const prevUnreadRef = React.useRef<number>(0);
   useEffect(() => {
     const updateUnread = () => {
       if (activeStudent) {
-        setUnreadStudentMsgCount(getUnreadCountForStudent(activeStudent.id));
+        const count = getUnreadCountForStudent(activeStudent.id);
+        if (count > prevUnreadRef.current) {
+          playChatNotificationChime();
+        }
+        prevUnreadRef.current = count;
+        setUnreadStudentMsgCount(count);
       } else {
         setUnreadStudentMsgCount(0);
+        prevUnreadRef.current = 0;
       }
     };
     updateUnread();
@@ -87,6 +100,67 @@ export default function App() {
       window.removeEventListener('storage', updateUnread);
     };
   }, [activeStudent]);
+
+  // Active student activity detail listener (e.g. current CBT question number or simulation phase)
+  const [activeItemDetail, setActiveItemDetail] = useState<string>('');
+
+  useEffect(() => {
+    const handleDetailEvent = (e: any) => {
+      if (e.detail?.detail) {
+        setActiveItemDetail(e.detail.detail);
+      }
+    };
+    window.addEventListener('tjkn_active_item_detail', handleDetailEvent);
+    return () => window.removeEventListener('tjkn_active_item_detail', handleDetailEvent);
+  }, []);
+
+  // Periodic Presence Heartbeat (Emits every 8s so teacher can track live in Radar)
+  useEffect(() => {
+    if (!activeStudent || userRole !== 'siswa') return;
+
+    let currentActivity = 'Aktif di Beranda Platform';
+    let activityCategory: 'cbt' | 'simulation' | 'essay' | 'material' | 'idle' = 'idle';
+
+    if (activeTab === 'objective') {
+      currentActivity = `Mengerjakan Evaluasi CBT ${selectedBab ? selectedBab.code : ''}`;
+      activityCategory = 'cbt';
+    } else if (activeTab === 'simulations') {
+      currentActivity = `Praktikum Simulator ${selectedBab ? selectedBab.code : ''}`;
+      activityCategory = 'simulation';
+    } else if (activeTab === 'qualitative') {
+      currentActivity = `Mengerjakan Soal Esai ${selectedBab ? selectedBab.code : ''}`;
+      activityCategory = 'essay';
+    } else if (activeTab === 'overview') {
+      currentActivity = `Membaca Modul & Panduan ${selectedBab ? selectedBab.code : ''}`;
+      activityCategory = 'material';
+    } else if (activeTab === 'dashboard') {
+      currentActivity = 'Melihat Portofolio & Nilai';
+      activityCategory = 'idle';
+    }
+
+    const emitHeartbeat = () => {
+      sendPresenceHeartbeat({
+        userId: activeStudent.id,
+        role: 'siswa',
+        userName: activeStudent.name,
+        noAbsen: activeStudent.noAbsen,
+        className: activeStudent.className,
+        school: activeStudent.school,
+        currentActivity: activeItemDetail ? `${currentActivity} (${activeItemDetail})` : currentActivity,
+        activityCategory,
+        babId: selectedBab?.id,
+        babCode: selectedBab?.code,
+        babTitle: selectedBab?.title,
+        activeItemDetail: activeItemDetail || undefined,
+        deviceLabel: `Lab ${activeStudent.school.includes('Mudita') ? 'Mudita' : 'SMKN 1'}`,
+      });
+    };
+
+    emitHeartbeat();
+    const interval = setInterval(emitHeartbeat, 8000);
+    return () => clearInterval(interval);
+  }, [activeStudent, userRole, activeTab, selectedBab, activeItemDetail]);
+
 
   // Initialize data on mount
   useEffect(() => {
@@ -263,6 +337,22 @@ export default function App() {
   }, []);
 
   const syncSubmissionsWithServer = () => {
+    // 1. Fetch from Firestore Cloud Database
+    fetchSubmissionsFromFirestore()
+      .then((firestoreSubs) => {
+        if (Object.keys(firestoreSubs).length > 0) {
+          setSubmissions((prev) => {
+            const merged = { ...prev, ...firestoreSubs };
+            try {
+              localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
+        }
+      })
+      .catch((err) => console.warn('Could not sync with Firestore', err));
+
+    // 2. Fetch from Express server backup
     fetch('/api/submissions')
       .then((res) => res.json())
       .then((data) => {
@@ -279,11 +369,15 @@ export default function App() {
       .catch((err) => console.warn('Could not sync with server', err));
   };
 
-  // Periodic Polling to sync submissions across student and teacher devices (every 5 seconds)
+  // Periodic Polling to sync submissions & messages across student and teacher devices (every 4 seconds)
   useEffect(() => {
+    syncSubmissionsWithServer();
+    syncMessagesWithServer();
+
     const interval = setInterval(() => {
       syncSubmissionsWithServer();
-    }, 5000);
+      syncMessagesWithServer();
+    }, 4000);
 
     return () => clearInterval(interval);
   }, []);
@@ -362,6 +456,9 @@ export default function App() {
       body: JSON.stringify(enrichedSub),
     }).catch((err) => console.warn('Could not post submission to server', err));
 
+    // Persist directly to Firebase Firestore
+    saveSubmissionToFirestore(enrichedSub);
+
     if (enrichedSub.isFlaggedTooFast) {
       showToastNotification(
         `Hasil CBT ${selectedBab?.code} tersimpan! Catatan: Waktu pengerjaan ${Math.floor(
@@ -369,7 +466,7 @@ export default function App() {
         )} detik terindikasi terlalu cepat dan dipantau oleh Guru.`
       );
     } else {
-      showToastNotification(`Hasil Ujian CBT ${selectedBab?.code} berhasil disimpan!`);
+      showToastNotification(`Hasil Ujian CBT ${selectedBab?.code} berhasil disimpan ke Firebase Cloud & Database!`);
     }
   };
 
@@ -393,12 +490,13 @@ export default function App() {
       // ignore
     }
 
-    // Sync cancellation to server
+    // Sync cancellation to server & Firestore
     fetch('/api/submissions/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: subKey, reason }),
     }).catch(() => {});
+    saveSubmissionToFirestore(updatedSub);
 
     showToastNotification(`Ujian ${current.studentName} (${current.school}) berhasil dibatalkan.`);
   };
@@ -423,12 +521,13 @@ export default function App() {
       // ignore
     }
 
-    // Sync restoration to server
+    // Sync restoration to server & Firestore
     fetch('/api/submissions/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: subKey }),
     }).catch(() => {});
+    saveSubmissionToFirestore(updatedSub);
 
     showToastNotification(`Hasil ujian ${current.studentName} dipulihkan.`);
   };
@@ -445,16 +544,14 @@ export default function App() {
   };
 
   const handleResetStudents = () => {
-    if (window.confirm('Kembalikan data siswa ke data default SMK Negeri 1 & SMK Mudita Singkawang?')) {
-      const resetList = resetStudentsToDefault();
-      setStudents(resetList);
-      saveAllStudents(resetList);
-      if (resetList.length > 0) {
-        setActiveStudent(resetList[0]);
-        setActiveStudentSession(resetList[0]);
-      }
-      showToastNotification('Data siswa berhasil direset ke data default.');
+    const resetList = resetStudentsToDefault();
+    setStudents(resetList);
+    saveAllStudents(resetList);
+    if (resetList.length > 0) {
+      setActiveStudent(resetList[0]);
+      setActiveStudentSession(resetList[0]);
     }
+    showToastNotification('Data siswa berhasil direset ke data default.');
   };
 
   // Question bank export
@@ -734,6 +831,23 @@ export default function App() {
           onClose={() => setIsStudentChatOpen(false)}
           activeStudent={activeStudent}
         />
+      )}
+
+      {/* Floating Action Button: Chat Langsung dengan Guru Simon Murd */}
+      {activeStudent && !isStudentChatOpen && (
+        <button
+          onClick={() => setIsStudentChatOpen(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 px-4 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xl shadow-blue-600/30 active:scale-95 transition cursor-pointer print:hidden"
+          title="Tanya atau Bimbingan Langsung dengan Guru (Pak Simon Murd)"
+        >
+          <MessageSquare className="w-4 h-4 text-white" />
+          <span className="font-semibold">Chat Guru</span>
+          {unreadStudentMsgCount > 0 && (
+            <span className="w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center font-bold text-[10px] animate-bounce">
+              {unreadStudentMsgCount}
+            </span>
+          )}
+        </button>
       )}
     </div>
   );

@@ -274,6 +274,647 @@ app.post('/api/submissions/restore', (req: Request, res: Response) => {
   res.json({ success: true, key, submission: current[key] });
 });
 
+// 5. POST / CLEAR DUMMY DATA (Reset submissions, logs, messages, presence to clean state)
+app.post('/api/admin/clear-dummy-data', (_req: Request, res: Response) => {
+  try {
+    writeServerSubmissions({});
+    writeServerMessages([]);
+    writeServerPresence({});
+    const simFile = path.join(__dirname, 'server_simulations.json');
+    const essayFile = path.join(__dirname, 'server_essays.json');
+    fs.writeFileSync(simFile, JSON.stringify([], null, 2), 'utf-8');
+    fs.writeFileSync(essayFile, JSON.stringify([], null, 2), 'utf-8');
+    res.json({ success: true, message: 'Semua data dummy berhasil dibersihkan.' });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal membersihkan data dummy: ${e.message}` });
+  }
+});
+
+// ==========================================
+// SERVER MESSAGES PERSISTENCE (Multi-Device Chat)
+// ==========================================
+const MESSAGES_FILE = path.join(__dirname, 'server_messages.json');
+
+function getInitialMessages(): any[] {
+  return [
+    {
+      id: 'msg_seed_1',
+      sender: 'guru',
+      teacherName: 'Simon Murd',
+      studentId: 'smkn1_x_01',
+      studentName: 'ALVINO',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      message: 'Selamat Alvino! Nilai CBT Bab 1 kamu sangat baik (88%). Pemahaman kabel UTP dan pinout T568A/B kamu sudah kuat. Silakan lanjutkan ke Bab 2.',
+      timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+      isReadByStudent: true,
+      isReadByTeacher: true,
+      babReference: 1,
+      tag: 'apresiasi',
+    },
+    {
+      id: 'msg_seed_2',
+      sender: 'siswa',
+      teacherName: 'Simon Murd',
+      studentId: 'smkn1_x_01',
+      studentName: 'ALVINO',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      message: 'Terima kasih banyak Pak Simon! Siap, saya akan langsung mulai pelajari Bab 2 pembuatan kabel.',
+      timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+      isReadByStudent: true,
+      isReadByTeacher: true,
+      babReference: 1,
+      tag: 'umum',
+    },
+    {
+      id: 'msg_seed_3',
+      sender: 'guru',
+      teacherName: 'Simon Murd',
+      studentId: 'smkn1_x_04',
+      studentName: 'DEO REVALDY AHMAD',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      message: 'Halo Deo, saya perhatikan kamu menyelesaikan ujian CBT Bab 2 hanya dalam waktu 45 detik dan nilainya masih 50% (di bawah KKM 75). Sistem menandai durasi ini terlalu cepat. Mohon baca kembali modul secara teliti lalu ajukan ujian remedial ya.',
+      timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+      isReadByStudent: false,
+      isReadByTeacher: true,
+      babReference: 2,
+      tag: 'teguran',
+    },
+    {
+      id: 'msg_seed_veliyan_1',
+      sender: 'guru',
+      teacherName: 'Simon Murd',
+      studentId: 'mudita_xii_31',
+      studentName: 'VELIYAN VINSON',
+      className: 'XII TJKT',
+      school: 'SMK MUDITA SINGKAWANG',
+      message: 'Halo Veliyan, hasil evaluasi CBT Bab 8 Jaringan Nirkabel Outdoor kamu sudah masuk dengan nilai sangat bagus 93% (Lulus KKM). Pertahankan performanya ya!',
+      timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+      isReadByStudent: true,
+      isReadByTeacher: true,
+      babReference: 8,
+      tag: 'apresiasi',
+    },
+    {
+      id: 'msg_seed_veliyan_2',
+      sender: 'siswa',
+      teacherName: 'Simon Murd',
+      studentId: 'mudita_xii_31',
+      studentName: 'VELIYAN VINSON',
+      className: 'XII TJKT',
+      school: 'SMK MUDITA SINGKAWANG',
+      message: 'Terima kasih banyak Pak Simon atas bimbingannya! Saya sudah selesaikan simulasi dan CBT Bab 8. Jika ada tugas lanjutan akan segera saya kerjakan.',
+      timestamp: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
+      isReadByStudent: true,
+      isReadByTeacher: true,
+      babReference: 8,
+      tag: 'umum',
+    },
+  ];
+}
+
+function readServerMessages(): any[] {
+  try {
+    if (!fs.existsSync(MESSAGES_FILE)) {
+      const initial = getInitialMessages();
+      fs.writeFileSync(MESSAGES_FILE, JSON.stringify(initial, null, 2), 'utf-8');
+      return initial;
+    }
+    const data = fs.readFileSync(MESSAGES_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : getInitialMessages();
+  } catch (err) {
+    console.error('Error reading server messages', err);
+    return getInitialMessages();
+  }
+}
+
+function writeServerMessages(msgs: any[]): void {
+  try {
+    fs.writeFileSync(MESSAGES_FILE, JSON.stringify(msgs, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving server messages', err);
+  }
+}
+
+// GET all messages
+app.get('/api/messages', (_req: Request, res: Response) => {
+  const msgs = readServerMessages();
+  res.json({ success: true, messages: msgs });
+});
+
+// POST send new message (from teacher or student)
+app.post('/api/messages', (req: Request, res: Response) => {
+  try {
+    const payload = req.body;
+    if (!payload || !payload.message || !payload.studentId) {
+      res.status(400).json({ error: 'Data pesan tidak lengkap' });
+      return;
+    }
+
+    const newMsg = {
+      ...payload,
+      id: payload.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: payload.timestamp || new Date().toISOString(),
+    };
+
+    const current = readServerMessages();
+    current.push(newMsg);
+    writeServerMessages(current);
+
+    res.json({ success: true, message: newMsg });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal mengirim pesan: ${e.message}` });
+  }
+});
+
+// POST mark messages as read
+app.post('/api/messages/mark-read', (req: Request, res: Response) => {
+  try {
+    const { studentId, role } = req.body;
+    if (!studentId || !role) {
+      res.status(400).json({ error: 'Parameter studentId dan role diperlukan' });
+      return;
+    }
+
+    const current = readServerMessages();
+    let updated = false;
+
+    current.forEach((m) => {
+      if (m.studentId === studentId) {
+        if (role === 'siswa' && m.sender === 'guru' && !m.isReadByStudent) {
+          m.isReadByStudent = true;
+          updated = true;
+        } else if (role === 'guru' && m.sender === 'siswa' && !m.isReadByTeacher) {
+          m.isReadByTeacher = true;
+          updated = true;
+        }
+      }
+    });
+
+    if (updated) {
+      writeServerMessages(current);
+    }
+
+    res.json({ success: true, updated });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal memperbarui status baca: ${e.message}` });
+  }
+});
+
+// ==========================================
+// SERVER PRESENCE & ACTIVITY TRACKER (Radar Lab Komputer)
+// ==========================================
+const PRESENCE_FILE = path.join(__dirname, 'server_presence.json');
+
+function getInitialPresence(): Record<string, any> {
+  const now = Date.now();
+  return {
+    'mudita_xii_31': {
+      userId: 'mudita_xii_31',
+      role: 'siswa',
+      userName: 'VELIYAN VINSON',
+      noAbsen: '31',
+      className: 'XII TJKT',
+      school: 'SMK MUDITA SINGKAWANG',
+      currentActivity: 'Sedang Mengerjakan CBT Bab 8 (Soal 38/40)',
+      activityCategory: 'cbt',
+      babId: 8,
+      babCode: 'Bab 8',
+      babTitle: 'Jaringan Nirkabel Outdoor',
+      activeItemDetail: 'Soal #38 Pilihan Ganda Kompleks',
+      lastHeartbeat: new Date(now - 4000).toISOString(),
+      isOnline: true,
+      deviceLabel: 'PC-09 Lab Mudita',
+    },
+    'smkn1_x_01': {
+      userId: 'smkn1_x_01',
+      role: 'siswa',
+      userName: 'ALVINO',
+      noAbsen: '01',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      currentActivity: 'Praktikum Simulator Bab 2 (Pembuatan & Pengujian Kabel UTP)',
+      activityCategory: 'simulation',
+      babId: 2,
+      babCode: 'Bab 2',
+      babTitle: 'Pembuatan & Pengujian Kabel Jaringan',
+      activeItemDetail: 'Step 4 Pinout T568B & LAN Tester',
+      lastHeartbeat: new Date(now - 12000).toISOString(),
+      isOnline: true,
+      deviceLabel: 'PC-01 Lab Jaringan SMKN 1',
+    },
+    'smkn1_x_04': {
+      userId: 'smkn1_x_04',
+      role: 'siswa',
+      userName: 'DEO REVALDY AHMAD',
+      noAbsen: '04',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      currentActivity: 'Membaca Modul & Panduan Bab 2 (Persiapan Remedial)',
+      activityCategory: 'material',
+      babId: 2,
+      babCode: 'Bab 2',
+      babTitle: 'Pembuatan & Pengujian Kabel Jaringan',
+      activeItemDetail: 'Membaca Teori Standar Kabel EIA/TIA',
+      lastHeartbeat: new Date(now - 18000).toISOString(),
+      isOnline: true,
+      deviceLabel: 'PC-04 Lab Jaringan SMKN 1',
+    },
+    'smkn1_xi_05': {
+      userId: 'smkn1_xi_05',
+      role: 'siswa',
+      userName: 'CLARISSA AULIA',
+      noAbsen: '05',
+      className: 'XI TJKT 1',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      currentActivity: 'Mengerjakan Esai Bab 5 (Fiber Optic)',
+      activityCategory: 'essay',
+      babId: 5,
+      babCode: 'Bab 5',
+      babTitle: 'Fiber Optic & Splicing Fusion',
+      activeItemDetail: 'Pertanyaan Esai Kasus 1 Redaman Kabel',
+      lastHeartbeat: new Date(now - 22000).toISOString(),
+      isOnline: true,
+      deviceLabel: 'PC-11 Lab Jaringan SMKN 1',
+    },
+  };
+}
+
+function readServerPresence(): Record<string, any> {
+  try {
+    if (!fs.existsSync(PRESENCE_FILE)) {
+      const initial = getInitialPresence();
+      fs.writeFileSync(PRESENCE_FILE, JSON.stringify(initial, null, 2), 'utf-8');
+      return initial;
+    }
+    const data = fs.readFileSync(PRESENCE_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    return typeof parsed === 'object' && parsed !== null ? parsed : getInitialPresence();
+  } catch (err) {
+    console.error('Error reading server presence', err);
+    return getInitialPresence();
+  }
+}
+
+function writeServerPresence(presenceMap: Record<string, any>): void {
+  try {
+    fs.writeFileSync(PRESENCE_FILE, JSON.stringify(presenceMap, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving server presence', err);
+  }
+}
+
+// GET /api/presence
+app.get('/api/presence', (_req: Request, res: Response) => {
+  const map = readServerPresence();
+  const now = Date.now();
+  const result: Record<string, any> = {};
+
+  Object.keys(map).forEach((key) => {
+    const item = map[key];
+    const hbTime = new Date(item.lastHeartbeat).getTime();
+    // Online if heartbeat within 45 seconds
+    const isOnline = !isNaN(hbTime) && (now - hbTime < 45000);
+    result[key] = {
+      ...item,
+      isOnline,
+    };
+  });
+
+  res.json({ success: true, presences: result });
+});
+
+// POST /api/presence/heartbeat
+app.post('/api/presence/heartbeat', (req: Request, res: Response) => {
+  try {
+    const payload = req.body;
+    if (!payload || !payload.userId) {
+      res.status(400).json({ error: 'Parameter userId wajib' });
+      return;
+    }
+
+    const map = readServerPresence();
+    const existing = map[payload.userId] || {};
+    const updated = {
+      ...existing,
+      ...payload,
+      lastHeartbeat: new Date().toISOString(),
+      isOnline: true,
+    };
+
+    map[payload.userId] = updated;
+    writeServerPresence(map);
+
+    res.json({ success: true, presence: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal memperbarui presence: ${e.message}` });
+  }
+});
+
+// POST /api/presence/typing
+app.post('/api/presence/typing', (req: Request, res: Response) => {
+  try {
+    const { userId, isTypingTo } = req.body;
+    if (!userId) {
+      res.status(400).json({ error: 'Parameter userId wajib' });
+      return;
+    }
+
+    const map = readServerPresence();
+    if (map[userId]) {
+      map[userId].isTypingTo = isTypingTo || null;
+      map[userId].lastHeartbeat = new Date().toISOString();
+      writeServerPresence(map);
+    }
+
+    res.json({ success: true, userId, isTypingTo });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal memperbarui status mengetik: ${e.message}` });
+  }
+});
+
+// ==========================================
+// SERVER SIMULATION LOGS PERSISTENCE
+// ==========================================
+const SIMULATIONS_FILE = path.join(__dirname, 'server_simulations.json');
+
+function getInitialSimulations(): any[] {
+  return [
+    {
+      id: 'sim_veliyan_1',
+      studentId: 'mudita_xii_31',
+      studentName: 'VELIYAN VINSON',
+      noAbsen: '31',
+      className: 'XII TJKT',
+      school: 'SMK MUDITA SINGKAWANG',
+      babId: 8,
+      babCode: 'Bab 8',
+      babTitle: 'Jaringan Nirkabel Outdoor',
+      taskNumber: 1,
+      taskTitle: 'Kalkulasi Link Budget & Line of Sight (LoS)',
+      simulationType: 'link_budget',
+      status: 'Berhasil',
+      score: 95,
+      details: 'Margin daya 18 dB, clearance zona Fresnel 80% terpenuhi.',
+      timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
+    },
+    {
+      id: 'sim_alvino_1',
+      studentId: 'smkn1_x_01',
+      studentName: 'ALVINO',
+      noAbsen: '01',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      babId: 1,
+      babCode: 'Bab 1',
+      babTitle: 'Pengenalan Media Transmisi Jaringan',
+      taskNumber: 1,
+      taskTitle: 'Pengujian Karakteristik Kabel UTP Cat 6 vs Fiber Optic',
+      simulationType: 'lan_tester',
+      status: 'Berhasil',
+      score: 90,
+      details: 'Pinout 1-8 lurus sempurna (Straight-Through T568B).',
+      timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+    },
+  ];
+}
+
+function readServerSimulations(): any[] {
+  try {
+    if (!fs.existsSync(SIMULATIONS_FILE)) {
+      const initial = getInitialSimulations();
+      fs.writeFileSync(SIMULATIONS_FILE, JSON.stringify(initial, null, 2), 'utf-8');
+      return initial;
+    }
+    const data = fs.readFileSync(SIMULATIONS_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : getInitialSimulations();
+  } catch (err) {
+    return getInitialSimulations();
+  }
+}
+
+function writeServerSimulations(logs: any[]): void {
+  try {
+    fs.writeFileSync(SIMULATIONS_FILE, JSON.stringify(logs, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving server simulations', err);
+  }
+}
+
+// GET simulation logs
+app.get('/api/simulation-logs', (_req: Request, res: Response) => {
+  const logs = readServerSimulations();
+  res.json({ success: true, logs });
+});
+
+// POST save simulation log
+app.post('/api/simulation-logs', (req: Request, res: Response) => {
+  try {
+    const log = req.body;
+    const current = readServerSimulations();
+    current.unshift({
+      ...log,
+      id: log.id || `sim_${Date.now()}`,
+      timestamp: log.timestamp || new Date().toISOString(),
+    });
+    writeServerSimulations(current);
+    res.json({ success: true, log });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================
+// CBT EXAM CONFIG PERSISTENCE (Proctor Token & Timer)
+// ==========================================
+const EXAM_CONFIG_FILE = path.join(__dirname, 'server_exam_config.json');
+
+function getDefaultExamConfig() {
+  return {
+    tokenEnabled: true,
+    examToken: 'TJKN2026',
+    durationMinutes: 60,
+    sessionTitle: 'Penilaian Sumatif Akhir Bab (PSAB) Fase F TJKN',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function readExamConfig() {
+  try {
+    if (!fs.existsSync(EXAM_CONFIG_FILE)) {
+      const initial = getDefaultExamConfig();
+      fs.writeFileSync(EXAM_CONFIG_FILE, JSON.stringify(initial, null, 2), 'utf-8');
+      return initial;
+    }
+    const data = fs.readFileSync(EXAM_CONFIG_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (err) {
+    return getDefaultExamConfig();
+  }
+}
+
+function writeExamConfig(config: any): void {
+  try {
+    fs.writeFileSync(EXAM_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving exam config', err);
+  }
+}
+
+app.get('/api/exam-config', (_req: Request, res: Response) => {
+  const config = readExamConfig();
+  res.json({ success: true, config });
+});
+
+app.post('/api/exam-config', (req: Request, res: Response) => {
+  try {
+    const current = readExamConfig();
+    const updated = {
+      ...current,
+      ...req.body,
+      updatedAt: new Date().toISOString(),
+    };
+    writeExamConfig(updated);
+    res.json({ success: true, config: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================
+// SERVER ESSAYS PERSISTENCE & TEACHER MANUAL GRADING
+// ==========================================
+const ESSAYS_FILE = path.join(__dirname, 'server_essays.json');
+
+function getInitialEssays(): any[] {
+  return [
+    {
+      id: 'essay_veliyan_bab8_1',
+      studentId: 'mudita_xii_31',
+      studentName: 'VELIYAN VINSON',
+      noAbsen: '31',
+      className: 'XII TJKT',
+      school: 'SMK MUDITA SINGKAWANG',
+      babId: 8,
+      babCode: 'Bab 8',
+      babTitle: 'Jaringan Nirkabel Outdoor',
+      questionId: 'b8_e1',
+      questionNumber: 1,
+      questionTitle: 'Analisis Interferensi Kanal dan Redaman Frekuensi',
+      studentAnswer: 'Pada instalasi link wireless outdoor jarak 4.2 km di area industri, frekuensi 2.4 GHz mengalami noise floor tinggi (-78 dBm) akibat interferensi motorik dan banyaknya AP residensial. Rekomendasi teknis yang saya terapkan: 1) Migrasi frekuensi ke 5.8 GHz (UNII-3 kanal 149-161) dengan lebar spektrum 20/40 MHz; 2) Penggunaan antena directional grid/dish 30 dBi; 3) Perhitungan link budget memastikan margin daya minimal 18 dB di atas sensitivity receiver (-88 dBm); 4) Pemasangan lightning arrester dan grounding grounding < 5 Ohm.',
+      wordCount: 78,
+      score: 94,
+      letterGrade: 'A',
+      teacherScore: 95,
+      teacherFeedback: 'Analisis studi kasus sangat matang, kalkulasi margin daya dan aspek K3 grounding grounding < 5 Ohm sudah sesuai standar industri.',
+      gradedAt: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
+      timestamp: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
+    },
+    {
+      id: 'essay_alvino_bab1_1',
+      studentId: 'smkn1_x_01',
+      studentName: 'ALVINO',
+      noAbsen: '01',
+      className: 'X TJK',
+      school: 'SMK NEGERI 1 SINGKAWANG',
+      babId: 1,
+      babCode: 'Bab 1',
+      babTitle: 'Pengenalan Media Transmisi Jaringan',
+      questionId: 'b1_e1',
+      questionNumber: 1,
+      questionTitle: 'Identifikasi Kerusakan Kabel UTP dan Karakteristik Crosstalk',
+      studentAnswer: 'Kabel UTP yang putus pada pin 3 dan 6 akan menyebabkan hilangnya sinyal transmit/receive pada standar 100Base-TX Fast Ethernet. Pengujian menggunakan LAN Tester menunjukkan LED 3 dan 6 tidak menyala. Solusi dilakukan recrimping dengan standar T568B: Putih Oranye, Oranye, Putih Hijau, Biru, Putih Biru, Hijau, Putih Cokelat, Cokelat.',
+      wordCount: 52,
+      score: 86,
+      letterGrade: 'B',
+      teacherScore: 88,
+      teacherFeedback: 'Bagus Alvino! Urutan pinout T568B tepat dan paham fungsi pasangan pin RX.',
+      gradedAt: new Date(Date.now() - 3600000 * 3).toISOString(),
+      timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+    },
+  ];
+}
+
+function readServerEssays(): any[] {
+  try {
+    if (!fs.existsSync(ESSAYS_FILE)) {
+      const initial = getInitialEssays();
+      fs.writeFileSync(ESSAYS_FILE, JSON.stringify(initial, null, 2), 'utf-8');
+      return initial;
+    }
+    const data = fs.readFileSync(ESSAYS_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : getInitialEssays();
+  } catch (err) {
+    return getInitialEssays();
+  }
+}
+
+function writeServerEssays(essays: any[]): void {
+  try {
+    fs.writeFileSync(ESSAYS_FILE, JSON.stringify(essays, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving server essays', err);
+  }
+}
+
+app.get('/api/essay-logs', (_req: Request, res: Response) => {
+  const essays = readServerEssays();
+  res.json({ success: true, essays });
+});
+
+// Teacher Grade Override
+app.post('/api/essay-logs/grade', (req: Request, res: Response) => {
+  try {
+    const { essayId, studentId, babId, questionId, teacherScore, teacherFeedback } = req.body;
+    const current = readServerEssays();
+    const idx = current.findIndex(
+      (e) =>
+        e.id === essayId ||
+        (e.studentId === studentId && e.babId === Number(babId) && e.questionId === questionId)
+    );
+
+    if (idx !== -1) {
+      current[idx].teacherScore = Number(teacherScore);
+      current[idx].teacherFeedback = teacherFeedback;
+      current[idx].gradedAt = new Date().toISOString();
+      writeServerEssays(current);
+      res.json({ success: true, essay: current[idx] });
+    } else {
+      const newEssay = {
+        id: essayId || `essay_${Date.now()}`,
+        studentId,
+        studentName: req.body.studentName || 'Siswa',
+        noAbsen: req.body.noAbsen || '-',
+        className: req.body.className || '-',
+        school: req.body.school || '-',
+        babId: Number(babId),
+        babCode: req.body.babCode || `Bab ${babId}`,
+        babTitle: req.body.babTitle || '-',
+        questionId: questionId || 'q1',
+        questionNumber: req.body.questionNumber || 1,
+        questionTitle: req.body.questionTitle || 'Analisis Masalah',
+        studentAnswer: req.body.studentAnswer || '-',
+        wordCount: req.body.wordCount || 0,
+        score: req.body.score || 80,
+        teacherScore: Number(teacherScore),
+        teacherFeedback: teacherFeedback || 'Dinilai oleh guru pengampu.',
+        gradedAt: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
+      };
+      current.unshift(newEssay);
+      writeServerEssays(current);
+      res.json({ success: true, essay: newEssay });
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Google Apps Script Simulation Log Status / Ping Check
 app.get('/api/simulation-log/status', async (_req: Request, res: Response) => {
   try {
@@ -419,6 +1060,19 @@ app.post('/api/simulation-log', async (req: Request, res: Response) => {
     });
 
     const responseText = await response.text();
+
+    // Persist into server_simulations.json for unified ledger
+    try {
+      const currentLogs = readServerSimulations();
+      currentLogs.unshift({
+        ...logData,
+        id: logData.id || `sim_${Date.now()}`,
+        timestamp: timestamp || new Date().toISOString(),
+      });
+      writeServerSimulations(currentLogs.slice(0, 500));
+    } catch (e) {
+      console.warn('Could not write server simulation', e);
+    }
 
     res.json({
       success: true,
@@ -607,6 +1261,44 @@ app.post('/api/essay-log', async (req: Request, res: Response) => {
     });
 
     const responseText = await response.text();
+
+    // Persist into server_essays.json for teacher grading inspection
+    try {
+      const current = readServerEssays();
+      const sId = essayData.studentId || (studentName?.toLowerCase().includes('veliyan') ? 'mudita_xii_31' : `std_${Date.now()}`);
+      const essayId = `essay_${sId}_${babId}_${questionId}`;
+      const existingIdx = current.findIndex((e) => e.id === essayId || (e.studentId === sId && e.babId === Number(babId) && e.questionId === questionId));
+      const entry = {
+        id: essayId,
+        studentId: sId,
+        studentName,
+        noAbsen: String(noAbsen),
+        className,
+        school,
+        babId: Number(babId),
+        babCode,
+        babTitle,
+        questionId: String(questionId),
+        questionNumber: Number(questionNumber),
+        questionTitle,
+        studentAnswer,
+        wordCount: Number(wordCount),
+        score: Number(score),
+        letterGrade,
+        teacherScore: existingIdx !== -1 && current[existingIdx].teacherScore !== undefined ? current[existingIdx].teacherScore : undefined,
+        teacherFeedback: existingIdx !== -1 && current[existingIdx].teacherFeedback ? current[existingIdx].teacherFeedback : undefined,
+        timestamp,
+      };
+
+      if (existingIdx !== -1) {
+        current[existingIdx] = { ...current[existingIdx], ...entry };
+      } else {
+        current.unshift(entry);
+      }
+      writeServerEssays(current);
+    } catch (saveErr) {
+      console.warn('Could not persist essay to server_essays.json:', saveErr);
+    }
 
     res.json({
       success: true,

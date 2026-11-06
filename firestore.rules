@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 1. Students collection
+    match /students/{studentId} {
+      allow read: if true;
+      allow write: if isValidId(studentId);
+    }
+
+    // 2. Submissions collection (Exam submissions)
+    match /submissions/{submissionId} {
+      allow read: if true;
+      allow create, update: if isValidId(submissionId)
+        && request.resource.data.percentage is number
+        && request.resource.data.babId is number;
+      allow delete: if false;
+    }
+
+    // 3. Simulation logs collection
+    match /simulationLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId)
+        && request.resource.data.babId is number;
+      allow delete: if false;
+    }
+
+    // 4. Essay logs & teacher grading
+    match /essayLogs/{essayId} {
+      allow read: if true;
+      allow create, update: if isValidId(essayId);
+      allow delete: if false;
+    }
+
+    // 5. Direct chat messages
+    match /directMessages/{messageId} {
+      allow read: if true;
+      allow create, update: if isValidId(messageId)
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 2000;
+      allow delete: if false;
+    }
+
+    // 6. Configs (Exam token and duration)
+    match /configs/{configId} {
+      allow read: if true;
+      allow write: if isValidId(configId);
+    }
+
+    // 7. Rombel assignments
+    match /rombelAssignments/{rombelId} {
+      allow read: if true;
+      allow write: if isValidId(rombelId);
+    }
+
+    // 8. Presence & Activity tracker (Real-time student radar)
+    match /presence/{userId} {
+      allow read: if true;
+      allow write: if isValidId(userId);
+    }
+  }
+}

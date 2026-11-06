@@ -5,13 +5,20 @@ import {
   ExamSubmission,
   DirectChatMessage,
   RombelAssignment,
+  UserPresence,
 } from '../../types/curriculum';
 import {
   getAllDirectMessages,
   sendDirectMessage,
   markMessagesAsReadByTeacher,
+  syncMessagesWithServer,
 } from '../../data/directMessagesData';
 import { isBabAccessibleForStudent } from '../../data/rombelAssignments';
+import {
+  subscribeToLabPresence,
+  updateTypingStatus,
+} from '../../services/presenceService';
+import { playChatNotificationChime } from '../../utils/audioChime';
 import {
   Users,
   Search,
@@ -34,6 +41,12 @@ import {
   RefreshCw,
   XCircle,
   Award,
+  Radio,
+  Activity,
+  Volume2,
+  VolumeX,
+  Zap,
+  Monitor,
 } from 'lucide-react';
 
 interface TeacherDirectChatAndProgressProps {
@@ -43,6 +56,8 @@ interface TeacherDirectChatAndProgressProps {
   rombelAssignments: Record<string, RombelAssignment>;
   onCancelSubmission: (key: string, reason: string) => void;
   onRestoreSubmission: (key: string) => void;
+  initialSelectedStudentId?: string;
+  initialTab?: 'progress' | 'chat';
 }
 
 export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgressProps> = ({
@@ -52,22 +67,73 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
   rombelAssignments,
   onCancelSubmission,
   onRestoreSubmission,
+  initialSelectedStudentId,
+  initialTab,
 }) => {
   // Selection states
-  const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(students[0] || null);
+  const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(() => {
+    if (initialSelectedStudentId) {
+      const found = students.find((s) => s.id === initialSelectedStudentId);
+      if (found) return found;
+    }
+    return students[0] || null;
+  });
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterSchool, setFilterSchool] = useState<string>('all');
   const [filterClass, setFilterClass] = useState<string>('all');
   const [filterProgressStatus, setFilterProgressStatus] = useState<'all' | 'pending' | 'completed' | 'remedial'>('all');
+  const [filterPresenceMode, setFilterPresenceMode] = useState<'all' | 'online_only' | 'cbt' | 'simulation' | 'essay'>('all');
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  // Presence state from Firestore and Server
+  const [presences, setPresences] = useState<Record<string, UserPresence>>({});
 
   // Messages state
   const [allMessages, setAllMessages] = useState<DirectChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<DirectChatMessage['tag']>('umum');
   const [selectedBabRef, setSelectedBabRef] = useState<number | undefined>(undefined);
-  const [activeTab, setActiveTab] = useState<'progress' | 'chat'>('progress');
+  const [activeTab, setActiveTab] = useState<'progress' | 'chat'>(initialTab || 'progress');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimerRef = useRef<any>(null);
+  const prevMsgLengthRef = useRef<number>(0);
+
+  // Sync initial student selection if passed
+  useEffect(() => {
+    if (initialSelectedStudentId) {
+      const match = students.find((s) => s.id === initialSelectedStudentId);
+      if (match) {
+        setSelectedStudent(match);
+        if (initialTab) {
+          setActiveTab(initialTab);
+        }
+      }
+    }
+  }, [initialSelectedStudentId, initialTab, students]);
+
+  // Subscribe to real-time Lab Presence
+  useEffect(() => {
+    const unsubscribe = subscribeToLabPresence((updated) => {
+      setPresences(updated);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Chime when new student message arrives
+  useEffect(() => {
+    if (allMessages.length > prevMsgLengthRef.current && prevMsgLengthRef.current > 0) {
+      const latest = allMessages[allMessages.length - 1];
+      if (latest && latest.sender === 'siswa') {
+        if (soundEnabled) {
+          playChatNotificationChime();
+        }
+      }
+    }
+    prevMsgLengthRef.current = allMessages.length;
+  }, [allMessages, soundEnabled]);
 
   // Load and subscribe to direct messages
   const reloadMessages = () => {
@@ -76,10 +142,19 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
 
   useEffect(() => {
     reloadMessages();
+    syncMessagesWithServer().then(() => reloadMessages());
+
+    // 2-second live polling while teacher is viewing this screen
+    const pollTimer = setInterval(async () => {
+      await syncMessagesWithServer();
+      reloadMessages();
+    }, 2000);
+
     const handleUpdate = () => reloadMessages();
     window.addEventListener('tjkn_direct_messages_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     return () => {
+      clearInterval(pollTimer);
       window.removeEventListener('tjkn_direct_messages_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
@@ -143,7 +218,7 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
     };
   };
 
-  // Filter students
+  // Filter students with presence filter
   const filteredStudents = students.filter((s) => {
     const q = searchQuery.toLowerCase().trim();
     const matchSearch =
@@ -153,9 +228,7 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
       s.className.toLowerCase().includes(q) ||
       s.school.toLowerCase().includes(q);
 
-    // If searching explicitly by name, don't hide by school or class filter
     const isExplicitNameSearch = Boolean(q && s.name.toLowerCase().includes(q));
-
     const matchSchool = isExplicitNameSearch || filterSchool === 'all' || s.school === filterSchool;
     const matchClass = isExplicitNameSearch || filterClass === 'all' || s.className === filterClass;
 
@@ -168,17 +241,49 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
       if (filterProgressStatus === 'remedial' && !stats.hasRemedial) return false;
     }
 
+    if (filterPresenceMode === 'online_only') {
+      if (!presences[s.id]?.isOnline) return false;
+    } else if (filterPresenceMode === 'cbt') {
+      const pres = presences[s.id];
+      if (!pres?.isOnline || pres.activityCategory !== 'cbt') return false;
+    } else if (filterPresenceMode === 'simulation') {
+      const pres = presences[s.id];
+      if (!pres?.isOnline || pres.activityCategory !== 'simulation') return false;
+    } else if (filterPresenceMode === 'essay') {
+      const pres = presences[s.id];
+      if (!pres?.isOnline || pres.activityCategory !== 'essay') return false;
+    }
+
     return true;
   });
+
+  // Online metrics for Radar Lab
+  const onlineCount = Object.values(presences).filter((p) => p.isOnline && p.role === 'siswa').length;
+  const cbtCount = Object.values(presences).filter((p) => p.isOnline && p.role === 'siswa' && p.activityCategory === 'cbt').length;
+  const simCount = Object.values(presences).filter((p) => p.isOnline && p.role === 'siswa' && p.activityCategory === 'simulation').length;
+  const essayCount = Object.values(presences).filter((p) => p.isOnline && p.role === 'siswa' && p.activityCategory === 'essay').length;
 
   // Current student conversation
   const studentMessages = selectedStudent
     ? allMessages.filter((m) => m.studentId === selectedStudent.id)
     : [];
 
+  const handleInputChange = (text: string) => {
+    setInputMessage(text);
+    if (!selectedStudent) return;
+    updateTypingStatus('teacher_simon', selectedStudent.id);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      updateTypingStatus('teacher_simon', null);
+    }, 2500);
+  };
+
   const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputMessage.trim() || !selectedStudent) return;
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    updateTypingStatus('teacher_simon', null);
 
     sendDirectMessage({
       sender: 'guru',
@@ -211,32 +316,65 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
   };
 
   const selectedStats = selectedStudent ? getStudentStats(selectedStudent) : null;
+  const selectedPresence = selectedStudent ? presences[selectedStudent.id] : null;
 
   return (
     <div className="bg-white border border-slate-200 rounded-3xl shadow-xs overflow-hidden">
-      {/* Top Banner */}
-      <div className="p-6 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center justify-between gap-4">
+      {/* Top Banner with Real-Time Lab Radar */}
+      <div className="p-6 border-b border-slate-200 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 bg-blue-100 text-blue-700 rounded-xl">
-              <MessageSquare className="w-5 h-5" />
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 bg-blue-500/20 text-blue-400 rounded-xl border border-blue-500/30">
+              <Radio className="w-5 h-5 animate-pulse text-emerald-400" />
             </span>
-            <h3 className="text-lg font-bold text-slate-900">
-              Pengecekan Progres & Chat Langsung Siswa
-            </h3>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-black tracking-tight text-white">
+                  Radar Lab & Live Chat Siswa (Real-Time)
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-mono font-bold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  RADAR AKTIF
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Mendeteksi siswa yang sedang online di lab komputer, materi/soal yang sedang mereka buka secara live, dan komunikasi bimbingan 2 arah.
+              </p>
+            </div>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Pilih nama siswa untuk memantau tugas yang diberikan/selesai, serta kirim bimbingan atau instruksi langsung dari Pak Simon Murd.
-          </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-mono">
-          <span className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
-            Instruktur: Simon Murd
-          </span>
-          <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200">
-            {filteredStudents.length} Siswa Terfilter
-          </span>
+        {/* Live Lab Metrics & Audio Control */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-1.5 bg-slate-800/80 p-1 rounded-xl border border-slate-700/80 text-xs font-mono">
+            <div className="px-3 py-1 rounded-lg bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="font-bold">{onlineCount}</span>
+              <span className="text-[11px] text-emerald-400/80">Online</span>
+            </div>
+            <div className="px-2.5 py-1 rounded-lg text-slate-300">
+              <span className="font-bold text-white">{cbtCount}</span> CBT
+            </div>
+            <div className="px-2.5 py-1 rounded-lg text-slate-300">
+              <span className="font-bold text-white">{simCount}</span> Simulator
+            </div>
+            <div className="px-2.5 py-1 rounded-lg text-slate-300">
+              <span className="font-bold text-white">{essayCount}</span> Esai
+            </div>
+          </div>
+
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            title={soundEnabled ? 'Notifikasi Suara Aktif (Klik untuk Mute)' : 'Notifikasi Suara Nonaktif (Klik untuk Bunyi)'}
+            className={`p-2 rounded-xl border transition flex items-center gap-1.5 text-xs font-mono ${
+              soundEnabled
+                ? 'bg-blue-600/30 border-blue-500/50 text-blue-300 hover:bg-blue-600/50'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            {soundEnabled ? <Volume2 className="w-4 h-4 text-blue-400" /> : <VolumeX className="w-4 h-4" />}
+            <span className="hidden sm:inline">{soundEnabled ? 'Suara ON' : 'Mute'}</span>
+          </button>
         </div>
       </div>
 
@@ -288,7 +426,7 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
               </select>
             </div>
 
-            {/* Quick Filter Badges */}
+            {/* Progress Filter Badges */}
             <div className="flex items-center gap-1.5 pt-1 overflow-x-auto text-[11px]">
               <button
                 onClick={() => setFilterProgressStatus('all')}
@@ -298,7 +436,7 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                Semua
+                Semua Progres
               </button>
               <button
                 onClick={() => setFilterProgressStatus('pending')}
@@ -334,13 +472,69 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                 <span>Lengkap</span>
               </button>
             </div>
+
+            {/* Radar Lab Activity Filter Badges */}
+            <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[10px] font-mono">
+              <span className="text-slate-400 font-bold shrink-0">Radar:</span>
+              <button
+                onClick={() => setFilterPresenceMode('all')}
+                className={`px-2 py-0.5 rounded-md font-bold transition shrink-0 ${
+                  filterPresenceMode === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Semua ({students.length})
+              </button>
+              <button
+                onClick={() => setFilterPresenceMode('online_only')}
+                className={`px-2 py-0.5 rounded-md font-bold transition shrink-0 flex items-center gap-1 ${
+                  filterPresenceMode === 'online_only'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Online ({onlineCount})</span>
+              </button>
+              <button
+                onClick={() => setFilterPresenceMode('cbt')}
+                className={`px-2 py-0.5 rounded-md font-bold transition shrink-0 ${
+                  filterPresenceMode === 'cbt'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+                }`}
+              >
+                CBT ({cbtCount})
+              </button>
+              <button
+                onClick={() => setFilterPresenceMode('simulation')}
+                className={`px-2 py-0.5 rounded-md font-bold transition shrink-0 ${
+                  filterPresenceMode === 'simulation'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
+                }`}
+              >
+                Sim ({simCount})
+              </button>
+              <button
+                onClick={() => setFilterPresenceMode('essay')}
+                className={`px-2 py-0.5 rounded-md font-bold transition shrink-0 ${
+                  filterPresenceMode === 'essay'
+                    ? 'bg-amber-600 text-white'
+                    : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                Esai ({essayCount})
+              </button>
+            </div>
           </div>
 
           {/* Student List Scrollable */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 max-h-[560px]">
             {filteredStudents.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">
-                Tidak ada siswa yang sesuai filter.
+                Tidak ada siswa yang sesuai filter saat ini.
               </div>
             ) : (
               filteredStudents.map((student) => {
@@ -349,6 +543,8 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                 const unreadFromStudent = allMessages.filter(
                   (m) => m.studentId === student.id && m.sender === 'siswa' && !m.isReadByTeacher
                 ).length;
+                const pres = presences[student.id];
+                const isOnline = Boolean(pres?.isOnline);
 
                 return (
                   <div
@@ -361,24 +557,43 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 ${
-                          isSelected
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {student.noAbsen}
+                      <div className="relative">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 ${
+                            isSelected
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {student.noAbsen}
+                        </div>
+                        {isOnline && (
+                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white animate-pulse"></span>
+                        )}
                       </div>
 
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-900 truncate">
-                          {student.name}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900 truncate">
+                            {student.name}
+                          </span>
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono truncate">
                           {student.className} •{' '}
                           {student.school.includes('MUDITA') ? 'SMK Mudita' : 'SMKN 1'}
                         </div>
+
+                        {/* Live Activity Badge */}
+                        {isOnline && pres?.currentActivity ? (
+                          <div className="text-[10px] font-semibold text-emerald-700 flex items-center gap-1 mt-0.5 truncate bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/80 max-w-[200px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                            <span className="truncate">{pres.currentActivity}</span>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            Offline di Lab
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -418,8 +633,13 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
               {/* Selected Student Header Card */}
               <div className="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 bg-slate-50/40">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-mono font-extrabold flex items-center justify-center text-base shadow-xs">
-                    {selectedStudent.noAbsen}
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-mono font-extrabold flex items-center justify-center text-base shadow-xs">
+                      {selectedStudent.noAbsen}
+                    </div>
+                    {selectedPresence?.isOnline && (
+                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white animate-ping"></span>
+                    )}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
@@ -462,6 +682,35 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                     <span>Chat ke Siswa ({studentMessages.length})</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Real-Time Student Activity Radar Bar */}
+              <div className="px-5 py-2.5 bg-slate-100/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  {selectedPresence?.isOnline ? (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold flex items-center gap-1.5 font-mono">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>ONLINE DI LAB</span>
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold font-mono">
+                      OFFLINE
+                    </span>
+                  )}
+                  <div className="text-slate-800 font-medium">
+                    <span className="text-slate-500">Sedang Mengerjakan: </span>
+                    <span className="font-bold text-slate-900">
+                      {selectedPresence?.currentActivity || 'Belum ada aktivitas baru'}
+                    </span>
+                  </div>
+                </div>
+
+                {selectedPresence?.deviceLabel && (
+                  <div className="text-[11px] font-mono text-slate-500 flex items-center gap-1">
+                    <Monitor className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{selectedPresence.deviceLabel}</span>
+                  </div>
+                )}
               </div>
 
               {/* View 1: Detailed Task Progress */}
@@ -688,29 +937,29 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                   {/* Chat Template Quick Shortcuts */}
                   <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2 overflow-x-auto text-xs">
                     <span className="text-[11px] font-mono text-slate-500 font-bold shrink-0">
-                      Template Cepat:
+                      Template Bimbingan Cepat:
                     </span>
                     <button
                       onClick={() =>
                         applyTemplate(
-                          'Halo {nama}, tugas LKPD & CBT kamu belum selesai. Mohon segera diselesaikan hari ini ya.',
-                          'pengingat'
+                          'Halo {nama}, apakah ada kendala atau kesulitan pada materi/simulasi yang sedang kamu buka saat ini? Silakan tanyakan ke Pak Simon.',
+                          'umum'
                         )
                       }
                       className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-700 transition shrink-0"
                     >
-                      ⚠️ Pengingat Tugas Belum Selesai
+                      ❓ Tanya Kendala Siswa
                     </button>
                     <button
                       onClick={() =>
                         applyTemplate(
-                          'Halo {nama}, nilai ujian CBT kamu terdeteksi di bawah KKM. Silakan review materi dan lakukan ujian remedial.',
-                          'teguran'
+                          'Halo {nama}, perhatikan alokasi waktu evaluasi CBT kamu ya. Jangan terburu-buru, periksa kembali jawaban sebelum submit.',
+                          'pengingat'
                         )
                       }
-                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-red-500 hover:text-red-700 transition shrink-0"
+                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-amber-500 hover:text-amber-700 transition shrink-0"
                     >
-                      📝 Teguran Remedial
+                      ⏱️ Pengingat Waktu CBT
                     </button>
                     <button
                       onClick={() =>
@@ -726,13 +975,24 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                     <button
                       onClick={() =>
                         applyTemplate(
-                          'Halo {nama}, perhatikan SOP K3 dan ketelitian urutan warna kabel T568B saat praktikum crimping di bengkel ya.',
+                          'Halo {nama}, nilai ujian CBT kamu terdeteksi di bawah KKM. Silakan review materi dan lakukan ujian remedial.',
+                          'teguran'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-red-500 hover:text-red-700 transition shrink-0"
+                    >
+                      📝 Teguran Remedial
+                    </button>
+                    <button
+                      onClick={() =>
+                        applyTemplate(
+                          'Halo {nama}, pastikan memperhatikan parameter redaman kabel fiber optic dan polarisasi antena di simulator ya.',
                           'bimbingan'
                         )
                       }
                       className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-700 transition shrink-0"
                     >
-                      🔧 Bimbingan Praktik
+                      🔧 Bimbingan Praktik Simulator
                     </button>
                   </div>
 
@@ -816,6 +1076,19 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                         );
                       })
                     )}
+
+                    {/* Live Student Typing Indicator */}
+                    {selectedPresence?.isTypingTo === 'teacher_simon' && (
+                      <div className="flex items-center gap-2 p-2.5 px-3.5 rounded-2xl bg-blue-50 border border-blue-200/80 text-blue-700 text-xs w-fit animate-pulse">
+                        <div className="flex gap-1 items-center">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce"></span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]"></span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]"></span>
+                        </div>
+                        <span className="font-semibold">{selectedStudent.name} sedang mengetik pesan...</span>
+                      </div>
+                    )}
+
                     <div ref={messagesEndRef} />
                   </div>
 
@@ -850,7 +1123,8 @@ export const TeacherDirectChatAndProgress: React.FC<TeacherDirectChatAndProgress
                       <textarea
                         rows={2}
                         value={inputMessage}
-                        onChange={(e) => setInputMessage(e.target.value)}
+                        onChange={(e) => handleInputChange(e.target.value)}
+                        onBlur={() => updateTypingStatus('teacher_simon', null)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();

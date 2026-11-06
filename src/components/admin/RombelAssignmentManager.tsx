@@ -20,6 +20,7 @@ import {
   CheckSquare,
   Square,
   Info,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 interface RombelAssignmentManagerProps {
@@ -37,6 +38,7 @@ export const RombelAssignmentManager: React.FC<RombelAssignmentManagerProps> = (
     ALL_ROMBEL_LIST[0] ? getRombelKey(ALL_ROMBEL_LIST[0].school, ALL_ROMBEL_LIST[0].className) : ''
   );
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [showApplyAllModal, setShowApplyAllModal] = useState<boolean>(false);
 
   const activeRombelObj = ALL_ROMBEL_LIST.find(
     (r) => getRombelKey(r.school, r.className) === selectedRombelKey
@@ -98,24 +100,27 @@ export const RombelAssignmentManager: React.FC<RombelAssignmentManagerProps> = (
     updateCurrentAssignment({ allowedBabs: ids });
   };
 
+  const handleExecuteApplyToAll = () => {
+    const nextMap: Record<string, RombelAssignment> = {};
+    ALL_ROMBEL_LIST.forEach((r) => {
+      const key = getRombelKey(r.school, r.className);
+      nextMap[key] = {
+        ...currentAssignment,
+        rombelKey: key,
+        school: r.school,
+        className: r.className,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    onUpdateAssignments(nextMap);
+    saveRombelAssignments(nextMap);
+    setShowApplyAllModal(false);
+    setSaveSuccessMsg('Pengaturan penugasan berhasil diterapkan ke seluruh 8 rombel!');
+    setTimeout(() => setSaveSuccessMsg(null), 3500);
+  };
+
   const handleApplyToAllRombels = () => {
-    if (window.confirm(`Terapkan penugasan ini (Bab ${currentAssignment.allowedBabs.join(', ') || 'kosong'}) ke SELURUH rombel di SMK Negeri 1 & SMK Mudita?`)) {
-      const nextMap: Record<string, RombelAssignment> = {};
-      ALL_ROMBEL_LIST.forEach((r) => {
-        const key = getRombelKey(r.school, r.className);
-        nextMap[key] = {
-          ...currentAssignment,
-          rombelKey: key,
-          school: r.school,
-          className: r.className,
-          updatedAt: new Date().toISOString(),
-        };
-      });
-      onUpdateAssignments(nextMap);
-      saveRombelAssignments(nextMap);
-      setSaveSuccessMsg('Pengaturan penugasan berhasil diterapkan ke seluruh rombel!');
-      setTimeout(() => setSaveSuccessMsg(null), 3500);
-    }
+    setShowApplyAllModal(true);
   };
 
   return (
@@ -403,6 +408,42 @@ export const RombelAssignmentManager: React.FC<RombelAssignmentManagerProps> = (
           </p>
         </div>
       </div>
+
+      {/* MODAL: APPLY TO ALL ROMBELS */}
+      {showApplyAllModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-xs space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-blue-600">
+              <SlidersHorizontal className="w-6 h-6 shrink-0" />
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Terapkan ke Seluruh Rombel?</h3>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  8 Rombel (SMKN 1 & SMK Mudita Singkawang)
+                </p>
+              </div>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              Konfigurasi bab aktif ({currentAssignment.allowedBabs.length > 0 ? `Bab ${currentAssignment.allowedBabs.join(', ')}` : 'Tidak ada bab'}) dan hak akses bagian akan diterapkan serentak ke seluruh rombel kelas X, XI, dan XII.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowApplyAllModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleExecuteApplyToAll}
+                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md shadow-blue-500/20 active:scale-95 transition"
+              >
+                Terapkan ke Semua Rombel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

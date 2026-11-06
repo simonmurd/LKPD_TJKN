@@ -1,0 +1,139 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Profil peserta didik SMK Negeri 1 dan SMK Mudita Singkawang",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID unik siswa" },
+        "noAbsen": { "type": "string", "description": "Nomor absen siswa" },
+        "name": { "type": "string", "description": "Nama lengkap peserta didik" },
+        "school": { "type": "string", "description": "Nama satuan pendidikan" },
+        "className": { "type": "string", "description": "Nama rombel kelas" }
+      },
+      "required": ["id", "noAbsen", "name", "school", "className"]
+    },
+    "ExamSubmission": {
+      "title": "ExamSubmission",
+      "description": "Hasil lembar pengerjaan evaluasi objektif CBT 40 butir",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID unik submission" },
+        "babId": { "type": "number", "description": "Nomor modul bab" },
+        "studentId": { "type": "string", "description": "ID siswa pengumpul" },
+        "studentName": { "type": "string", "description": "Nama siswa" },
+        "school": { "type": "string", "description": "Sekolah asal" },
+        "className": { "type": "string", "description": "Kelas rombel" },
+        "noAbsen": { "type": "string", "description": "Nomor absen" },
+        "date": { "type": "string", "format": "date-time", "description": "Waktu pengumpulan" },
+        "standardScore": { "type": "number", "description": "Poin benar pilihan ganda biasa" },
+        "complexScore": { "type": "number", "description": "Poin benar pilihan ganda kompleks" },
+        "totalScore": { "type": "number", "description": "Total butir benar dari 40" },
+        "percentage": { "type": "number", "description": "Nilai skala 0-100" },
+        "isPassed": { "type": "boolean", "description": "Status tuntas KKM 75" },
+        "timeSpentSeconds": { "type": "number", "description": "Durasi pengerjaan dalam detik" },
+        "isFlaggedTooFast": { "type": "boolean", "description": "Flag pengerjaan kurang dari 2 menit" },
+        "tabViolations": { "type": "number", "description": "Frekuensi keluar tab ujian" },
+        "status": { "type": "string", "enum": ["submitted", "cancelled_by_teacher"], "description": "Status validasi guru" }
+      },
+      "required": ["babId", "studentId", "percentage", "isPassed", "status"]
+    },
+    "SimulationLog": {
+      "title": "SimulationLog",
+      "description": "Log penyelesaian simulasi lab praktikum jaringan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID log simulasi" },
+        "studentId": { "type": "string", "description": "ID siswa" },
+        "studentName": { "type": "string", "description": "Nama siswa" },
+        "className": { "type": "string", "description": "Kelas" },
+        "school": { "type": "string", "description": "Sekolah" },
+        "babId": { "type": "number", "description": "Nomor bab" },
+        "taskTitle": { "type": "string", "description": "Judul tugas lab" },
+        "simulationType": { "type": "string", "description": "Jenis simulator jaringan" },
+        "score": { "type": "number", "description": "Poin kelulusan simulasi" },
+        "status": { "type": "string", "description": "Status penyelesaian" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Waktu pengerjaan" }
+      },
+      "required": ["studentId", "babId", "status", "timestamp"]
+    },
+    "EssayLog": {
+      "title": "EssayLog",
+      "description": "Jawaban esai kualitatif dan lembar koreksi nilai guru",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID unik esai" },
+        "studentId": { "type": "string", "description": "ID siswa" },
+        "studentName": { "type": "string", "description": "Nama siswa" },
+        "className": { "type": "string", "description": "Kelas" },
+        "school": { "type": "string", "description": "Sekolah" },
+        "babId": { "type": "number", "description": "Nomor bab" },
+        "questionId": { "type": "string", "description": "ID butir pertanyaan esai" },
+        "studentAnswer": { "type": "string", "description": "Teks jawaban siswa" },
+        "score": { "type": "number", "description": "Nilai asesor AI" },
+        "teacherScore": { "type": "number", "description": "Nilai manual guru pengampu" },
+        "teacherFeedback": { "type": "string", "description": "Catatan evaluasi guru" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Waktu pengumpulan" }
+      },
+      "required": ["studentId", "babId", "questionId", "studentAnswer", "timestamp"]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "Pesan interaksi bimbingan antara guru dan siswa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID pesan" },
+        "sender": { "type": "string", "enum": ["guru", "siswa"], "description": "Pengirim pesan" },
+        "teacherName": { "type": "string", "description": "Nama guru" },
+        "studentId": { "type": "string", "description": "ID siswa tujuan/pengirim" },
+        "studentName": { "type": "string", "description": "Nama siswa" },
+        "className": { "type": "string", "description": "Kelas" },
+        "school": { "type": "string", "description": "Sekolah" },
+        "message": { "type": "string", "description": "Isi pesan" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Waktu kirim" },
+        "isReadByStudent": { "type": "boolean", "description": "Status baca siswa" },
+        "isReadByTeacher": { "type": "boolean", "description": "Status baca guru" }
+      },
+      "required": ["sender", "studentId", "message", "timestamp"]
+    },
+    "ExamConfig": {
+      "title": "ExamConfig",
+      "description": "Konfigurasi token CBT dan durasi ujian lab komputer",
+      "type": "object",
+      "properties": {
+        "tokenEnabled": { "type": "boolean", "description": "Status keharusan token" },
+        "examToken": { "type": "string", "description": "Kode token ujian aktif" },
+        "durationMinutes": { "type": "number", "description": "Durasi pengerjaan dalam menit" },
+        "sessionTitle": { "type": "string", "description": "Judul sesi asesmen sumatif" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Waktu update terakhir" }
+      },
+      "required": ["tokenEnabled", "examToken", "durationMinutes"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Daftar siswa terdaftar SMK Negeri 1 dan Mudita Singkawang"
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/ExamSubmission" },
+      "description": "Hasil ujian CBT objektif siswa"
+    },
+    "/simulationLogs/{logId}": {
+      "schema": { "$ref": "#/entities/SimulationLog" },
+      "description": "Log praktikum simulasi media transmisi dan nirkabel"
+    },
+    "/essayLogs/{essayId}": {
+      "schema": { "$ref": "#/entities/EssayLog" },
+      "description": "Lembar jawaban esai dan penilaian manual guru"
+    },
+    "/directMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/DirectMessage" },
+      "description": "Komunikasi langsung chat guru dan siswa"
+    },
+    "/configs/examConfig": {
+      "schema": { "$ref": "#/entities/ExamConfig" },
+      "description": "Pengaturan token dan durasi pengawas lab"
+    }
+  }
+}
