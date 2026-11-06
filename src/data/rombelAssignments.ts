@@ -170,10 +170,8 @@ export function isBabAccessibleForStudent(
   babId: number,
   assignments: Record<string, RombelAssignment>
 ): boolean {
-  if (!student) return true; // Gate screen handles unauthenticated state
-  const assignment = getAssignmentForStudent(student, assignments);
-  if (!assignment) return true; // Default fallback open if not specified
-  return assignment.allowedBabs.includes(babId);
+  // Semua modul terbuka tanpa kunci
+  return true;
 }
 
 export function isSectionAccessibleForStudent(
@@ -182,40 +180,6 @@ export function isSectionAccessibleForStudent(
   section: 'overview' | 'simulations' | 'objective' | 'qualitative',
   assignments: Record<string, RombelAssignment>
 ): { allowed: boolean; reason?: string } {
-  if (!student) return { allowed: true };
-  const assignment = getAssignmentForStudent(student, assignments);
-  if (!assignment) return { allowed: true };
-
-  // First check if Bab itself is assigned
-  if (!assignment.allowedBabs.includes(babId)) {
-    return {
-      allowed: false,
-      reason: `Bab ${babId} belum ditugaskan untuk rombel ${student.className} (${student.school}).`,
-    };
-  }
-
-  // Next check if this section is enabled for the rombel
-  if (section === 'overview') {
-    return { allowed: assignment.allowedSections.overview !== false };
-  }
-  if (section === 'simulations') {
-    return {
-      allowed: assignment.allowedSections.simulations !== false,
-      reason: `Bagian Praktikum Simulasi Bab ${babId} dinonaktifkan oleh Guru untuk rombel ${student.className}.`,
-    };
-  }
-  if (section === 'objective') {
-    return {
-      allowed: assignment.allowedSections.objective !== false,
-      reason: `Bagian Evaluasi Objektif (40 Soal CBT) Bab ${babId} belum dibuka untuk rombel ${student.className}.`,
-    };
-  }
-  if (section === 'qualitative') {
-    return {
-      allowed: assignment.allowedSections.qualitative !== false,
-      reason: `Bagian Evaluasi Kualitatif (10 Soal Esai) Bab ${babId} belum dibuka untuk rombel ${student.className}.`,
-    };
-  }
-
+  // Semua modul & bagian terbuka tanpa kunci
   return { allowed: true };
 }

@@ -291,6 +291,88 @@ app.post('/api/admin/clear-dummy-data', (_req: Request, res: Response) => {
 });
 
 // ==========================================
+// SERVER TASKS & ACTIVITIES ASSIGNMENT
+// ==========================================
+const TASKS_FILE = path.join(__dirname, 'server_tasks.json');
+
+function readServerTasks(): any[] {
+  try {
+    if (!fs.existsSync(TASKS_FILE)) {
+      fs.writeFileSync(TASKS_FILE, JSON.stringify([], null, 2), 'utf-8');
+      return [];
+    }
+    const data = fs.readFileSync(TASKS_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeServerTasks(tasks: any[]): void {
+  try {
+    fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving server tasks', err);
+  }
+}
+
+app.get('/api/tasks', (_req: Request, res: Response) => {
+  res.json({ success: true, tasks: readServerTasks() });
+});
+
+app.post('/api/tasks', (req: Request, res: Response) => {
+  try {
+    const payload = req.body;
+    if (!payload || !payload.title || !payload.babId || !payload.taskType) {
+      res.status(400).json({ error: 'Data tugas tidak lengkap' });
+      return;
+    }
+    const newTask = {
+      ...payload,
+      id: payload.id || `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: payload.createdAt || new Date().toISOString(),
+      createdBy: payload.createdBy || 'Simon Murd',
+    };
+    const current = readServerTasks();
+    current.unshift(newTask);
+    writeServerTasks(current);
+    res.json({ success: true, task: newTask, tasks: current });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal menyimpan tugas: ${e.message}` });
+  }
+});
+
+app.put('/api/tasks/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const current = readServerTasks();
+    const idx = current.findIndex((t) => t.id === id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Tugas tidak ditemukan' });
+      return;
+    }
+    current[idx] = { ...current[idx], ...req.body, id };
+    writeServerTasks(current);
+    res.json({ success: true, task: current[idx], tasks: current });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal memperbarui tugas: ${e.message}` });
+  }
+});
+
+app.delete('/api/tasks/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const current = readServerTasks();
+    const filtered = current.filter((t) => t.id !== id);
+    writeServerTasks(filtered);
+    res.json({ success: true, tasks: filtered });
+  } catch (e: any) {
+    res.status(500).json({ error: `Gagal menghapus tugas: ${e.message}` });
+  }
+});
+
+// ==========================================
 // SERVER MESSAGES PERSISTENCE (Multi-Device Chat)
 // ==========================================
 const MESSAGES_FILE = path.join(__dirname, 'server_messages.json');

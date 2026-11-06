@@ -737,11 +737,19 @@ export default function App() {
                   babs={babs}
                   submissions={activeStudentSubmissionsMap}
                   userRole={isTeacherAuthenticated ? 'guru' : 'siswa'}
+                  activeStudent={activeStudent}
                   onSelectBab={(id) => {
                     const b = babs.find((item) => item.id === id);
                     if (b) {
                       setSelectedBab(b);
                       setActiveTab('overview');
+                    }
+                  }}
+                  onNavigateToTask={(babId, tab) => {
+                    const b = babs.find((item) => item.id === babId);
+                    if (b) {
+                      setSelectedBab(b);
+                      setActiveTab(tab);
                     }
                   }}
                 />

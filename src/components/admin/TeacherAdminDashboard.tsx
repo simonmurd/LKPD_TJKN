@@ -14,6 +14,8 @@ import { TeacherAnalyticsDashboard } from './TeacherAnalyticsDashboard';
 import { getUnreadCountForTeacher } from '../../data/directMessagesData';
 import { ExamSessionConfigModal } from './ExamSessionConfigModal';
 import { CbtItemAnalysisModal } from './CbtItemAnalysisModal';
+import { TeacherTaskManager } from './TeacherTaskManager';
+import { ClipboardList } from 'lucide-react';
 import {
   BarChart3,
   Users,
@@ -77,7 +79,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
   onRefreshSubmissions,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'monitoring' | 'analytics' | 'chat_progress' | 'ai_assistant' | 'rombel_assignments' | 'students_crud' | 'simulation_logs'
+    'monitoring' | 'tasks_manager' | 'analytics' | 'chat_progress' | 'ai_assistant' | 'rombel_assignments' | 'students_crud' | 'simulation_logs'
   >('monitoring');
   const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | undefined>(undefined);
   const [selectedChatTab, setSelectedChatTab] = useState<'progress' | 'chat'>('progress');
@@ -435,6 +437,18 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('tasks_manager')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+            activeTab === 'tasks_manager'
+              ? 'bg-blue-600 text-white shadow-xs font-bold'
+              : 'text-blue-700 bg-blue-50/70 hover:bg-blue-100/80'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4 text-blue-600" />
+          <span>Kirim Tugas & Kegiatan</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('analytics')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
             activeTab === 'analytics'
@@ -542,6 +556,11 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
           babs={babs}
           rombelAssignments={rombelAssignments}
         />
+      )}
+
+      {/* TAB: KIRIM TUGAS & KEGIATAN SISWA */}
+      {activeTab === 'tasks_manager' && (
+        <TeacherTaskManager students={students} babs={babs} />
       )}
 
       {/* TAB: ROMBEL ASSIGNMENTS */}

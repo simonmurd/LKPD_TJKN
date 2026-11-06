@@ -271,3 +271,22 @@ export interface UserPresence {
   deviceLabel?: string; // e.g. "PC-14 Lab TJKT"
 }
 
+export interface StudentTaskAssignment {
+  id: string;
+  title: string;
+  babId: number;
+  babCode: string;
+  babTitle: string;
+  taskType: 'simulation' | 'cbt' | 'essay';
+  targetType: 'all' | 'school' | 'class' | 'student';
+  targetSchool?: string;
+  targetClass?: string;
+  targetStudentId?: string;
+  targetStudentName?: string;
+  dueDate?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+

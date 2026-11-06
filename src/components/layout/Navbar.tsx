@@ -313,7 +313,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
-            <span>Rapor Siswa</span>
+            <span>Dashboard & Tugas</span>
           </button>
         </nav>
 

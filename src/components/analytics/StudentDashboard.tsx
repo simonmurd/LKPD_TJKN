@@ -1,12 +1,40 @@
-import React from 'react';
-import { CurriculumBab, ExamSubmission, UserRole } from '../../types/curriculum';
-import { Award, CheckCircle2, AlertTriangle, TrendingUp, BookOpen, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  CurriculumBab,
+  ExamSubmission,
+  UserRole,
+  StudentProfile,
+  StudentTaskAssignment,
+  SimulationLogEntry,
+  EssayLogEntry,
+} from '../../types/curriculum';
+import {
+  fetchTasksFromServer,
+  getTasksForStudent,
+} from '../../services/tasksService';
+import {
+  Award,
+  CheckCircle2,
+  AlertTriangle,
+  TrendingUp,
+  BookOpen,
+  Clock,
+  ShieldCheck,
+  ArrowRight,
+  Bell,
+  ClipboardList,
+  Play,
+  FileQuestion,
+  PenTool,
+} from 'lucide-react';
 
 interface StudentDashboardProps {
   babs: CurriculumBab[];
   submissions: Record<number, ExamSubmission>;
   onSelectBab: (id: number) => void;
   userRole: UserRole;
+  activeStudent?: StudentProfile | null;
+  onNavigateToTask?: (babId: number, tab: 'simulations' | 'objective' | 'qualitative') => void;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
@@ -14,7 +42,84 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   submissions,
   onSelectBab,
   userRole,
+  activeStudent,
+  onNavigateToTask,
 }) => {
+  const [allTasks, setAllTasks] = useState<StudentTaskAssignment[]>([]);
+  const [simLogs, setSimLogs] = useState<SimulationLogEntry[]>([]);
+  const [essayLogs, setEssayLogs] = useState<EssayLogEntry[]>([]);
+
+  useEffect(() => {
+    fetchTasksFromServer().then(setAllTasks);
+    fetch('/api/simulation-logs')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && Array.isArray(d.logs)) setSimLogs(d.logs);
+      })
+      .catch(() => {});
+    fetch('/api/essay-logs')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && Array.isArray(d.essays)) setEssayLogs(d.essays);
+      })
+      .catch(() => {});
+
+    const handleTaskUpdate = () => {
+      fetchTasksFromServer().then(setAllTasks);
+    };
+    window.addEventListener('tjkn_tasks_updated', handleTaskUpdate);
+    return () => window.removeEventListener('tjkn_tasks_updated', handleTaskUpdate);
+  }, [activeStudent?.id]);
+
+  const myTasks = getTasksForStudent(allTasks, activeStudent || null);
+
+  // Check completion status for each assigned task
+  const taskChecklist = myTasks.map((t) => {
+    let isDone = false;
+    let scoreLabel = '-';
+
+    if (t.taskType === 'cbt') {
+      const sub = submissions[t.babId];
+      if (sub && sub.status !== 'cancelled_by_teacher') {
+        isDone = true;
+        scoreLabel = `${sub.percentage}%`;
+      }
+    } else if (t.taskType === 'simulation') {
+      const sim = simLogs.find(
+        (s) =>
+          (s.studentId === activeStudent?.id ||
+            s.studentName?.toLowerCase() === activeStudent?.name.toLowerCase()) &&
+          s.babId === t.babId
+      );
+      if (sim) {
+        isDone = true;
+        scoreLabel = `${sim.score ?? 100}%`;
+      }
+    } else if (t.taskType === 'essay') {
+      const essays = essayLogs.filter(
+        (e) =>
+          (e.studentId === activeStudent?.id ||
+            e.studentName?.toLowerCase() === activeStudent?.name.toLowerCase()) &&
+          e.babId === t.babId
+      );
+      if (essays.length > 0) {
+        isDone = true;
+        const avg = Math.round(
+          essays.reduce((acc, item) => acc + (item.score || 0), 0) / essays.length
+        );
+        scoreLabel = `${avg}% (AI)`;
+      }
+    }
+
+    return {
+      ...t,
+      isDone,
+      scoreLabel,
+    };
+  });
+
+  const pendingTasksCount = taskChecklist.filter((t) => !t.isDone).length;
+
   const completedCount = Object.keys(submissions).length;
   const passedCount = Object.values(submissions).filter((s) => s.isPassed).length;
 
@@ -42,6 +147,136 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Tugas & Kegiatan dari Guru (Notifikasi & Tabel Ceklis) */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="relative p-2.5 rounded-2xl bg-blue-100 text-blue-700">
+              <ClipboardList className="w-5 h-5" />
+              {pendingTasksCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-600 rounded-full border-2 border-white animate-ping"></span>
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-base text-slate-900">
+                  Tugas & Kegiatan dari Pak Simon Murd
+                </h3>
+                {pendingTasksCount > 0 ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-red-600 text-white text-[11px] font-bold animate-pulse flex items-center gap-1">
+                    <Bell className="w-3 h-3" />
+                    <span>{pendingTasksCount} Tugas Belum Dikerjakan</span>
+                  </span>
+                ) : taskChecklist.length > 0 ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                    ✓ Semua Tugas Selesai
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Daftar tugas Simulasi, CBT, dan Esai yang dikirimkan guru. Nilai otomatis tercatat di Leger.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {taskChecklist.length === 0 ? (
+          <div className="p-6 text-center rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-500">
+            Belum ada tugas khusus yang dikirimkan oleh Pak Simon Murd saat ini. Kamu tetap bebas mempelajari semua modul.
+          </div>
+        ) : (
+          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-mono text-[10px] uppercase">
+                <tr>
+                  <th className="p-3">Ceklis</th>
+                  <th className="p-3">Judul Tugas & Kegiatan</th>
+                  <th className="p-3">Modul</th>
+                  <th className="p-3">Jenis</th>
+                  <th className="p-3">Nilai</th>
+                  <th className="p-3 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {taskChecklist.map((t) => (
+                  <tr
+                    key={t.id}
+                    className={t.isDone ? 'bg-emerald-50/20' : 'bg-white hover:bg-slate-50'}
+                  >
+                    <td className="p-3">
+                      {t.isDone ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Sudah</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-bold text-[11px]">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Belum</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <div className="font-bold text-slate-900">{t.title}</div>
+                      {t.notes && (
+                        <div className="text-[11px] text-slate-500 italic mt-0.5">
+                          "{t.notes}"
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono font-bold text-slate-700">{t.babCode}</td>
+                    <td className="p-3">
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase ${
+                          t.taskType === 'simulation'
+                            ? 'bg-blue-100 text-blue-800'
+                            : t.taskType === 'cbt'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}
+                      >
+                        {t.taskType === 'simulation'
+                          ? 'Simulasi'
+                          : t.taskType === 'cbt'
+                          ? 'CBT'
+                          : 'Esai AI'}
+                      </span>
+                    </td>
+                    <td className="p-3 font-mono font-bold text-slate-900">{t.scoreLabel}</td>
+                    <td className="p-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetTab =
+                            t.taskType === 'simulation'
+                              ? 'simulations'
+                              : t.taskType === 'cbt'
+                              ? 'objective'
+                              : 'qualitative';
+                          if (onNavigateToTask) {
+                            onNavigateToTask(t.babId, targetTab);
+                          } else {
+                            onSelectBab(t.babId);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition inline-flex items-center gap-1 cursor-pointer ${
+                          t.isDone
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                        }`}
+                      >
+                        <span>{t.isDone ? 'Buka Lagi' : 'Kerjakan'}</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Overview Stat Cards - Bright Minimalist */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
