@@ -26,6 +26,7 @@ import {
   Play,
   FileQuestion,
   PenTool,
+  Users,
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -180,6 +181,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
         </div>
 
+        {!activeStudent && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-3 text-amber-900 text-xs">
+            <div className="flex items-center gap-2.5">
+              <Users className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <span className="font-bold">Mode Tamu (Belum Memilih Nama Siswa).</span>{' '}
+                Berikut adalah daftar tugas aktif dari Pak Simon Murd. Silakan klik tombol{' '}
+                <strong>"Ketik atau pilih Nama Siswa"</strong> di navigasi atas agar hasil pengerjaanmu otomatis tercatat di Leger Guru.
+              </div>
+            </div>
+          </div>
+        )}
+
         {taskChecklist.length === 0 ? (
           <div className="p-6 text-center rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-500">
             Belum ada tugas khusus yang dikirimkan oleh Pak Simon Murd saat ini. Kamu tetap bebas mempelajari semua modul.
@@ -191,6 +205,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <tr>
                   <th className="p-3">Ceklis</th>
                   <th className="p-3">Judul Tugas & Kegiatan</th>
+                  <th className="p-3">Target</th>
                   <th className="p-3">Modul</th>
                   <th className="p-3">Jenis</th>
                   <th className="p-3">Nilai</th>
@@ -223,6 +238,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           "{t.notes}"
                         </div>
                       )}
+                    </td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold">
+                        {t.targetType === 'all'
+                          ? 'Semua Siswa'
+                          : t.targetType === 'school'
+                          ? t.targetSchool?.replace(' SINGKAWANG', '')
+                          : t.targetType === 'class'
+                          ? `Rombel ${t.targetClass}`
+                          : `Khusus: ${t.targetStudentName || t.targetStudentId}`}
+                      </span>
                     </td>
                     <td className="p-3 font-mono font-bold text-slate-700">{t.babCode}</td>
                     <td className="p-3">

@@ -24,6 +24,7 @@ import {
   ExamConfig,
   StudentProfile,
   UserPresence,
+  StudentTaskAssignment,
 } from '../types/curriculum';
 
 // Initialize Firebase App
@@ -357,3 +358,75 @@ export async function clearAllDataFromFirestore(): Promise<void> {
     console.warn('Could not clear all data from Firestore:', err);
   }
 }
+
+// 8. TASKS & ACTIVITIES ASSIGNMENTS (Real-time Firestore)
+export async function saveTaskToFirestore(task: StudentTaskAssignment): Promise<void> {
+  try {
+    const docId = task.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const docRef = doc(db, 'tasks', docId);
+    const cleanData = Object.fromEntries(
+      Object.entries({
+        ...task,
+        updatedAt: new Date().toISOString(),
+      }).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(docRef, cleanData, { merge: true });
+  } catch (err) {
+    console.error('Error saving task to Firestore:', err);
+  }
+}
+
+export async function deleteTaskFromFirestore(taskId: string): Promise<void> {
+  try {
+    const docId = taskId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const docRef = doc(db, 'tasks', docId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn('Error deleting task from Firestore:', err);
+  }
+}
+
+export async function fetchTasksFromFirestore(): Promise<StudentTaskAssignment[]> {
+  try {
+    const colRef = collection(db, 'tasks');
+    const snapshot = await getDocs(colRef);
+    const list: StudentTaskAssignment[] = [];
+    snapshot.forEach((d) => {
+      list.push(d.data() as StudentTaskAssignment);
+    });
+    return list.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  } catch (err) {
+    console.warn('Could not fetch tasks from Firestore:', err);
+    return [];
+  }
+}
+
+export function subscribeToTasksFromFirestore(
+  callback: (tasks: StudentTaskAssignment[]) => void
+): () => void {
+  try {
+    const colRef = collection(db, 'tasks');
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const list: StudentTaskAssignment[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as StudentTaskAssignment);
+        });
+        list.sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        callback(list);
+      },
+      (err) => {
+        console.warn('Firestore tasks subscription error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('Could not subscribe to tasks from Firestore:', err);
+    return () => {};
+  }
+}
+

@@ -68,5 +68,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isValidId(userId);
     }
+
+    // 9. Tasks & Activities assignment from teacher
+    match /tasks/{taskId} {
+      allow read: if true;
+      allow write: if isValidId(taskId);
+      allow delete: if true;
+    }
   }
 }
