@@ -41,6 +41,7 @@ import { getUnreadCountForStudent, syncMessagesWithServer } from './data/directM
 import {
   saveSubmissionToFirestore,
   fetchSubmissionsFromFirestore,
+  clearAllDataFromFirestore,
 } from './lib/firebase';
 import { sendPresenceHeartbeat } from './services/presenceService';
 import { playChatNotificationChime } from './utils/audioChime';
@@ -192,131 +193,24 @@ export default function App() {
       // ignore
     }
 
-    // Initial seed submissions including Veliyan Vinson and others
-    const seedSubs: Record<string, ExamSubmission> = {
-      'mudita_xii_31_8': {
-        id: 'sub_veliyan_bab8',
-        babId: 8,
-        studentId: 'mudita_xii_31',
-        studentName: 'VELIYAN VINSON',
-        school: 'SMK MUDITA SINGKAWANG',
-        className: 'XII TJKT',
-        noAbsen: '31',
-        date: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
-        standardAnswers: {},
-        complexAnswers: {},
-        standardScore: 19,
-        complexScore: 18,
-        totalScore: 37,
-        percentage: 93,
-        isPassed: true,
-        timeSpentSeconds: 745,
-        isFlaggedTooFast: false,
-        tabViolations: 0,
-        raguRaguCount: 0,
-        status: 'submitted',
-      },
-      'mudita_xii_31_1': {
-        id: 'sub_veliyan_bab1',
-        babId: 1,
-        studentId: 'mudita_xii_31',
-        studentName: 'VELIYAN VINSON',
-        school: 'SMK MUDITA SINGKAWANG',
-        className: 'XII TJKT',
-        noAbsen: '31',
-        date: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-        standardAnswers: {},
-        complexAnswers: {},
-        standardScore: 18,
-        complexScore: 18,
-        totalScore: 36,
-        percentage: 90,
-        isPassed: true,
-        timeSpentSeconds: 680,
-        isFlaggedTooFast: false,
-        tabViolations: 0,
-        raguRaguCount: 0,
-        status: 'submitted',
-      },
-      'smkn1_x_01_1': {
-        id: 'sub_seed_1',
-        babId: 1,
-        studentId: 'smkn1_x_01',
-        studentName: 'ALVINO',
-        school: 'SMK NEGERI 1 SINGKAWANG',
-        className: 'X TJK',
-        noAbsen: '01',
-        date: new Date(Date.now() - 3600000 * 4).toISOString(),
-        standardAnswers: {},
-        complexAnswers: {},
-        standardScore: 18,
-        complexScore: 17,
-        totalScore: 35,
-        percentage: 88,
-        isPassed: true,
-        timeSpentSeconds: 780,
-        status: 'submitted',
-      },
-      'smkn1_x_04_2': {
-        id: 'sub_seed_2',
-        babId: 2,
-        studentId: 'smkn1_x_04',
-        studentName: 'DEO REVALDY AHMAD',
-        school: 'SMK NEGERI 1 SINGKAWANG',
-        className: 'X TJK',
-        noAbsen: '04',
-        date: new Date(Date.now() - 3600000 * 2).toISOString(),
-        standardAnswers: {},
-        complexAnswers: {},
-        standardScore: 12,
-        complexScore: 8,
-        totalScore: 20,
-        percentage: 50,
-        isPassed: false,
-        timeSpentSeconds: 45,
-        isFlaggedTooFast: true,
-        status: 'submitted',
-      },
-      'mudita_xi_01_5': {
-        id: 'sub_seed_3',
-        babId: 5,
-        studentId: 'mudita_xi_01',
-        studentName: 'ALICIA JENIFER',
-        school: 'SMK MUDITA SINGKAWANG',
-        className: 'XI TJKT',
-        noAbsen: '01',
-        date: new Date(Date.now() - 3600000 * 6).toISOString(),
-        standardAnswers: {},
-        complexAnswers: {},
-        standardScore: 19,
-        complexScore: 18,
-        totalScore: 37,
-        percentage: 93,
-        isPassed: true,
-        timeSpentSeconds: 950,
-        status: 'submitted',
-      },
-    };
-
-    // Load initial submissions and merge with Veliyan
-    try {
-      const savedSubs = localStorage.getItem('tjkn_exam_submissions_v2');
-      let currentSubs = seedSubs;
-      if (savedSubs) {
-        currentSubs = { ...seedSubs, ...JSON.parse(savedSubs) };
-        // Ensure Veliyan Vinson is definitely included even if old cache exists
-        if (!currentSubs['mudita_xii_31_8']) {
-          currentSubs['mudita_xii_31_8'] = seedSubs['mudita_xii_31_8'];
-        }
-        if (!currentSubs['mudita_xii_31_1']) {
-          currentSubs['mudita_xii_31_1'] = seedSubs['mudita_xii_31_1'];
-        }
+    // One-time automatic cleanup of legacy dummy localStorage & Firestore cache
+    const needsCleanup = !localStorage.getItem('tjkn_dummy_cleaned_v4');
+    if (needsCleanup) {
+      try {
+        localStorage.removeItem('tjkn_exam_submissions_v2');
+        localStorage.removeItem('tjkn_submissions_v1');
+        localStorage.removeItem('tjkn_simulation_logs');
+        localStorage.setItem('tjkn_dummy_cleaned_v4', '1');
+      } catch (e) {}
+      setSubmissions({});
+    } else {
+      try {
+        const savedSubs = localStorage.getItem('tjkn_exam_submissions_v2');
+        const currentSubs: Record<string, ExamSubmission> = savedSubs ? JSON.parse(savedSubs) : {};
+        setSubmissions(currentSubs);
+      } catch (e) {
+        setSubmissions({});
       }
-      setSubmissions(currentSubs);
-      localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(currentSubs));
-    } catch (e) {
-      console.warn('Failed to load submissions', e);
-      setSubmissions(seedSubs);
     }
 
     // Sync real-time with server submissions
@@ -334,6 +228,22 @@ export default function App() {
         }
       })
       .catch((err) => console.warn('Could not sync with server on mount', err));
+
+    // Sync with Firestore after cleanup completes
+    (needsCleanup ? clearAllDataFromFirestore() : Promise.resolve())
+      .then(() => fetchSubmissionsFromFirestore())
+      .then((firestoreSubs) => {
+        if (Object.keys(firestoreSubs).length > 0) {
+          setSubmissions((prev) => {
+            const merged = { ...prev, ...firestoreSubs };
+            try {
+              localStorage.setItem('tjkn_exam_submissions_v2', JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
+        }
+      })
+      .catch((err) => console.warn('Could not sync with Firestore on mount', err));
   }, []);
 
   const syncSubmissionsWithServer = () => {

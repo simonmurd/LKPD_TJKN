@@ -6,13 +6,16 @@ import {
   SimulationLogEntry,
   RombelAssignment,
   EssayLogEntry,
+  StudentTaskAssignment,
 } from '../../types/curriculum';
+import { fetchTasksFromServer, getCachedTasks } from '../../services/tasksService';
 import { isBabAccessibleForStudent } from '../../data/rombelAssignments';
 import { TeacherEssayGradingModal } from './TeacherEssayGradingModal';
 import {
   fetchSimulationLogsFromFirestore,
   fetchEssayLogsFromFirestore,
   deleteStudentProgressFromFirestore,
+  clearAllDataFromFirestore,
 } from '../../lib/firebase';
 import {
   Search,
@@ -68,6 +71,17 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
     'all' | 'completed' | 'remedial' | 'too_fast' | 'cancelled' | 'pending'
   >('all');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [showDangerActions, setShowDangerActions] = useState<boolean>(false);
+  const [assignedTasks, setAssignedTasks] = useState<StudentTaskAssignment[]>(() => getCachedTasks());
+
+  useEffect(() => {
+    const loadTasks = () => {
+      fetchTasksFromServer().then(setAssignedTasks).catch(() => {});
+    };
+    loadTasks();
+    window.addEventListener('tjkn_tasks_updated', loadTasks);
+    return () => window.removeEventListener('tjkn_tasks_updated', loadTasks);
+  }, []);
   const [viewMode, setViewMode] = useState<'detail' | 'matrix'>('matrix');
   const [resetTarget, setResetTarget] = useState<{
     scope: 'student' | 'rombel';
@@ -90,6 +104,7 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
       await deleteStudentProgressFromFirestore(resetTarget.scope, resetTarget);
       await handleManualRefresh();
       setResetTarget(null);
+      window.location.reload();
     } catch (err) {
       console.error('Gagal mereset tugas:', err);
     } finally {
@@ -510,12 +525,48 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
 
             <button
               onClick={handleManualRefresh}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold transition shadow-2xs text-xs"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold transition shadow-2xs text-xs cursor-pointer"
               title="Perbarui data terbaru dari semua perangkat siswa"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span>{isRefreshing ? 'Sinkronisasi...' : 'Segarkan Data'}</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setShowDangerActions((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border font-bold transition shadow-2xs text-xs cursor-pointer ${
+                showDangerActions
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+              }`}
+              title="Tampilkan atau sembunyikan tombol reset data"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>Opsi Reset</span>
+            </button>
+
+            {showDangerActions && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsRefreshing(true);
+                  try {
+                    localStorage.clear();
+                    localStorage.setItem('tjkn_dummy_cleaned_v4', '1');
+                    await fetch('/api/admin/clear-dummy-data', { method: 'POST' });
+                    await clearAllDataFromFirestore();
+                  } finally {
+                    window.location.reload();
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold transition shadow-2xs text-xs cursor-pointer"
+                title="Kosongkan seluruh nilai & riwayat pengerjaan di Leger menjadi 0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Kosongkan Semua Leger</span>
+              </button>
+            )}
 
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-mono font-bold shadow-2xs" title="Data hasil pengerjaan siswa diperbarui secara otomatis setiap beberapa detik">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
@@ -674,8 +725,8 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
         </div>
       </div>
 
-      {/* Action Bar: Reset Rombel */}
-      {filterClass !== 'all' && (
+      {/* Action Bar: Reset Rombel (Hidden unless Opsi Reset is toggled) */}
+      {showDangerActions && filterClass !== 'all' && (
         <div className="flex items-center justify-end">
           <button
             type="button"
@@ -695,147 +746,179 @@ export const StudentActivityRecapTable: React.FC<StudentActivityRecapTableProps>
         </div>
       )}
 
-      {/* Matrix Leger View (1-14 + Total + NA + Rank) */}
-      <div className="bg-white border border-slate-300 rounded-3xl shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-center text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold">
-                  <th rowSpan={2} className="p-2.5 border-r border-slate-300 w-12">
-                    NO
-                  </th>
-                  <th rowSpan={2} className="p-2.5 border-r border-slate-300 text-left min-w-[200px]">
-                    NAMA SISWA
-                  </th>
-                  <th colSpan={14} className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]">
-                    Nilai Total Per Bab (1 – 14)
-                  </th>
-                  <th colSpan={2} className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]">
-                    NILAI
-                  </th>
-                  <th rowSpan={2} className="p-2.5 w-14 font-extrabold border-r border-slate-300">
-                    Rank
-                  </th>
-                  <th rowSpan={2} className="p-2.5 w-16 font-extrabold">
-                    Reset
-                  </th>
-                </tr>
-                <tr className="bg-slate-50 border-b border-slate-300 text-slate-700 font-mono text-[11px]">
-                  {Array.from({ length: 14 }, (_, i) => i + 1).map((num) => (
-                    <th key={num} className="p-1.5 border-r border-slate-300 w-9">
-                      {num}
+      {/* Matrix Leger View (Mengikuti Tugas yang Diberikan Guru, atau 1-14 jika belum ada tugas) */}
+      {(() => {
+        const relevantTasks = assignedTasks.filter(
+          (t) =>
+            filterClass === 'all' ||
+            t.targetType === 'all' ||
+            t.targetType === 'school' ||
+            t.targetClass === filterClass
+        );
+        const assignedBabIds = Array.from(new Set(relevantTasks.map((t) => t.babId))).sort(
+          (a, b) => a - b
+        );
+        const displayBabIds =
+          assignedBabIds.length > 0
+            ? assignedBabIds
+            : Array.from({ length: 14 }, (_, i) => i + 1);
+
+        return (
+          <div className="bg-white border border-slate-300 rounded-3xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-center text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold">
+                    <th rowSpan={2} className="p-2.5 border-r border-slate-300 w-12">
+                      NO
                     </th>
-                  ))}
-                  <th className="p-1.5 border-r border-slate-300 w-14">Total</th>
-                  <th className="p-1.5 border-r border-slate-300 w-12">NA</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {(() => {
-                  const filteredMatrixStudents = students.filter((s) => {
-                    const q = searchQuery.toLowerCase().trim();
-                    const matchSearch =
-                      !q ||
-                      s.name.toLowerCase().includes(q) ||
-                      s.noAbsen.includes(q) ||
-                      s.className.toLowerCase().includes(q);
-                    const matchSchool = filterSchool === 'all' || s.school === filterSchool;
-                    const matchClass = filterClass === 'all' || s.className === filterClass;
-                    return matchSearch && matchSchool && matchClass;
-                  });
+                    <th rowSpan={2} className="p-2.5 border-r border-slate-300 text-left min-w-[200px]">
+                      NAMA SISWA
+                    </th>
+                    <th
+                      colSpan={displayBabIds.length}
+                      className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]"
+                    >
+                      {assignedBabIds.length > 0
+                        ? `Nilai Tugas yang Diberikan (${assignedBabIds.length} Tugas)`
+                        : 'Nilai Total Per Bab (1 – 14)'}
+                    </th>
+                    <th colSpan={2} className="p-2 border-b border-r border-slate-300 uppercase tracking-wider text-[11px]">
+                      NILAI
+                    </th>
+                    <th rowSpan={2} className={`p-2.5 w-14 font-extrabold ${showDangerActions ? 'border-r border-slate-300' : ''}`}>
+                      Rank
+                    </th>
+                    {showDangerActions && (
+                      <th rowSpan={2} className="p-2.5 w-16 font-extrabold">
+                        Reset
+                      </th>
+                    )}
+                  </tr>
+                  <tr className="bg-slate-50 border-b border-slate-300 text-slate-700 font-mono text-[11px]">
+                    {displayBabIds.map((num) => (
+                      <th key={num} className="p-1.5 border-r border-slate-200 min-w-[36px]" title={`Bab ${num}`}>
+                        {num}
+                      </th>
+                    ))}
+                    <th className="p-1.5 border-r border-slate-200 min-w-[52px]">Total</th>
+                    <th className="p-1.5 border-r border-slate-300 min-w-[48px]">NA</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {(() => {
+                    const filteredMatrixStudents = students.filter((s) => {
+                      const q = searchQuery.toLowerCase().trim();
+                      const matchSearch =
+                        !q ||
+                        s.name.toLowerCase().includes(q) ||
+                        s.noAbsen.includes(q) ||
+                        s.className.toLowerCase().includes(q);
+                      const matchSchool = filterSchool === 'all' || s.school === filterSchool;
+                      const matchClass = filterClass === 'all' || s.className === filterClass;
+                      return matchSearch && matchSchool && matchClass;
+                    });
 
-                  const matrixRows = filteredMatrixStudents.map((student) => {
-                    const babScores: Record<number, number> = {};
-                    let totalSum = 0;
-                    let completedBabs = 0;
+                    const matrixRows = filteredMatrixStudents.map((student) => {
+                      const babScores: Record<number, number> = {};
+                      let totalSum = 0;
+                      let completedBabs = 0;
 
-                    for (let babId = 1; babId <= 14; babId++) {
-                      const row = activityRows.find(
-                        (r) => r.student.id === student.id && r.bab.id === babId
-                      );
-                      const val = row ? row.compositeScore : 0;
-                      babScores[babId] = val;
-                      totalSum += val;
-                      if (val > 0) completedBabs++;
-                    }
+                      for (const babId of displayBabIds) {
+                        const row = activityRows.find(
+                          (r) => r.student.id === student.id && r.bab.id === babId
+                        );
+                        const val = row ? row.compositeScore : 0;
+                        babScores[babId] = val;
+                        totalSum += val;
+                        if (val > 0) completedBabs++;
+                      }
 
-                    const na = completedBabs > 0 ? Math.round(totalSum / completedBabs) : 0;
-                    return { student, babScores, totalSum, na };
-                  });
+                      const na =
+                        assignedBabIds.length > 0
+                          ? Math.round(totalSum / assignedBabIds.length)
+                          : completedBabs > 0
+                          ? Math.round(totalSum / completedBabs)
+                          : 0;
+                      return { student, babScores, totalSum, na };
+                    });
 
-                  // Compute Rank based on totalSum descending
-                  const sortedTotals = [...matrixRows]
-                    .map((r) => r.totalSum)
-                    .sort((a, b) => b - a);
+                    const sortedTotals = [...matrixRows]
+                      .map((r) => r.totalSum)
+                      .sort((a, b) => b - a);
 
-                  return matrixRows.map((r) => {
-                    const rank = sortedTotals.indexOf(r.totalSum) + 1;
-                    return (
-                      <tr key={r.student.id} className="hover:bg-blue-50/40 transition">
-                        <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-600">
-                          {r.student.noAbsen}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 text-left font-bold text-slate-900">
-                          {r.student.noAbsen} {r.student.name}
-                        </td>
-                        {Array.from({ length: 14 }, (_, i) => i + 1).map((num) => {
-                          const val = r.babScores[num] || 0;
-                          return (
-                            <td
-                              key={num}
-                              className={`p-1.5 border-r border-slate-200 font-mono ${
-                                val === 0
-                                  ? 'text-slate-300'
-                                  : val < 75
-                                  ? 'text-red-700 font-bold bg-red-50/50'
-                                  : 'text-slate-800 font-semibold'
-                              }`}
-                            >
-                              {val}
-                            </td>
-                          );
-                        })}
-                        <td className="p-2 border-r border-slate-200 font-mono font-extrabold text-slate-900 bg-slate-50">
-                          {r.totalSum}
-                        </td>
-                        <td
-                          className={`p-2 border-r border-slate-200 font-mono font-extrabold ${
-                            r.na === 0
-                              ? 'text-slate-400'
-                              : r.na < 75
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {r.na}
-                        </td>
-                        <td className="p-2 border-r border-slate-200 font-mono font-extrabold text-blue-700">
-                          {rank}
-                        </td>
-                        <td className="p-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setResetTarget({
-                                scope: 'student',
-                                studentId: r.student.id,
-                                studentName: r.student.name,
-                              })
-                            }
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
-                            title={`Reset semua tugas & nilai ${r.student.name}`}
+                    return matrixRows.map((r) => {
+                      const rank = sortedTotals.indexOf(r.totalSum) + 1;
+                      return (
+                        <tr key={r.student.id} className="hover:bg-blue-50/40 transition">
+                          <td className="p-2 border-r border-slate-200 font-mono font-bold text-slate-600">
+                            {r.student.noAbsen}
+                          </td>
+                          <td className="p-2 border-r border-slate-200 text-left font-bold text-slate-900">
+                            {r.student.noAbsen} {r.student.name}
+                          </td>
+                          {displayBabIds.map((num) => {
+                            const val = r.babScores[num] || 0;
+                            return (
+                              <td
+                                key={num}
+                                className={`p-1.5 border-r border-slate-200 font-mono ${
+                                  val === 0
+                                    ? 'text-slate-300'
+                                    : val < 75
+                                    ? 'text-red-700 font-bold bg-red-50/50'
+                                    : 'text-slate-800 font-semibold'
+                                }`}
+                              >
+                                {val}
+                              </td>
+                            );
+                          })}
+                          <td className="p-2 border-r border-slate-200 font-mono font-extrabold text-slate-900 bg-slate-50">
+                            {r.totalSum}
+                          </td>
+                          <td
+                            className={`p-2 border-r border-slate-200 font-mono font-extrabold ${
+                              r.na === 0
+                                ? 'text-slate-400'
+                                : r.na < 75
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
                           >
-                            <RotateCcw className="w-3.5 h-3.5 mx-auto" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  });
-                })()}
-              </tbody>
-            </table>
+                            {r.na}
+                          </td>
+                          <td className={`p-2 font-mono font-extrabold text-blue-700 ${showDangerActions ? 'border-r border-slate-200' : ''}`}>
+                            {rank}
+                          </td>
+                          {showDangerActions && (
+                            <td className="p-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setResetTarget({
+                                    scope: 'student',
+                                    studentId: r.student.id,
+                                    studentName: r.student.name,
+                                  })
+                                }
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                                title={`Reset semua tugas & nilai ${r.student.name}`}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 mx-auto" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        );
+      })()}
 
       {/* In-Page Modal for Submission Cancellation */}
       {cancellingTarget && (

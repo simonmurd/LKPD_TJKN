@@ -80,9 +80,26 @@ export async function fetchSubmissionsFromFirestore(): Promise<Record<string, Ex
   try {
     const colRef = collection(db, 'submissions');
     const snapshot = await getDocs(colRef);
+    const dummyIds = new Set([
+      'sub_seed_1',
+      'sub_seed_2',
+      'sub_seed_3',
+      'sub_veliyan_bab8',
+      'sub_veliyan_bab1',
+      'smkn1_x_01_1',
+      'smkn1_x_04_2',
+      'mudita_xi_01_5',
+      'mudita_xii_31_8',
+      'mudita_xii_31_1',
+    ]);
     const results: Record<string, ExamSubmission> = {};
     snapshot.forEach((d) => {
-      results[d.id] = d.data() as ExamSubmission;
+      const data = d.data() as ExamSubmission;
+      if (dummyIds.has(d.id) || (data && data.id && dummyIds.has(data.id))) {
+        deleteDoc(d.ref).catch(() => {});
+        return;
+      }
+      results[d.id] = data;
     });
     return results;
   } catch (err) {
@@ -114,7 +131,12 @@ export async function fetchSimulationLogsFromFirestore(): Promise<SimulationLogE
     const snapshot = await getDocs(colRef);
     const list: SimulationLogEntry[] = [];
     snapshot.forEach((d) => {
-      list.push(d.data() as SimulationLogEntry);
+      const data = d.data() as SimulationLogEntry;
+      if (data && data.id && (data.id.includes('seed') || data.id.includes('veliyan'))) {
+        deleteDoc(d.ref).catch(() => {});
+        return;
+      }
+      list.push(data);
     });
     return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   } catch (err) {
@@ -146,7 +168,12 @@ export async function fetchEssayLogsFromFirestore(): Promise<EssayLogEntry[]> {
     const snapshot = await getDocs(colRef);
     const list: EssayLogEntry[] = [];
     snapshot.forEach((d) => {
-      list.push(d.data() as EssayLogEntry);
+      const data = d.data() as EssayLogEntry;
+      if (data && data.id && (data.id.includes('seed') || data.id.includes('veliyan'))) {
+        deleteDoc(d.ref).catch(() => {});
+        return;
+      }
+      list.push(data);
     });
     return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   } catch (err) {

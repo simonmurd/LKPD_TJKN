@@ -180,29 +180,14 @@ function getInitialSubmissions(): Record<string, any> {
 function readServerSubmissions(): Record<string, any> {
   try {
     if (!fs.existsSync(SUBMISSIONS_FILE)) {
-      const initial = getInitialSubmissions();
-      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(initial, null, 2), 'utf-8');
-      return initial;
+      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify({}, null, 2), 'utf-8');
+      return {};
     }
     const data = fs.readFileSync(SUBMISSIONS_FILE, 'utf-8');
-    const parsed = JSON.parse(data);
-    // Ensure Veliyan submissions exist
-    let modified = false;
-    if (!parsed['mudita_xii_31_8']) {
-      parsed['mudita_xii_31_8'] = getInitialSubmissions()['mudita_xii_31_8'];
-      modified = true;
-    }
-    if (!parsed['mudita_xii_31_1']) {
-      parsed['mudita_xii_31_1'] = getInitialSubmissions()['mudita_xii_31_1'];
-      modified = true;
-    }
-    if (modified) {
-      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
-    }
-    return parsed;
+    return JSON.parse(data) || {};
   } catch (err) {
     console.error('Error reading server submissions', err);
-    return getInitialSubmissions();
+    return {};
   }
 }
 

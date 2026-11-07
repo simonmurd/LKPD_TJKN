@@ -115,6 +115,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
   const [deletingStudentTarget, setDeletingStudentTarget] = useState<{ id: string; name: string } | null>(null);
   const [showResetStudentsModal, setShowResetStudentsModal] = useState<boolean>(false);
   const [showClearDummyModal, setShowClearDummyModal] = useState<boolean>(false);
+  const [showMaintenanceTools, setShowMaintenanceTools] = useState<boolean>(false);
   const [isClearingDummy, setIsClearingDummy] = useState<boolean>(false);
   const [formName, setFormName] = useState<string>('');
   const [formAbsen, setFormAbsen] = useState<string>('');
@@ -399,13 +400,29 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
             </button>
 
             <button
-              onClick={() => setShowClearDummyModal(true)}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold transition shadow-2xs text-xs cursor-pointer"
-              title="Bersihkan semua data dummy/uji coba (nilai CBT, simulasi, esai, chat, dan radar)"
+              type="button"
+              onClick={() => setShowMaintenanceTools((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-2xl border font-bold transition shadow-2xs text-xs cursor-pointer ${
+                showMaintenanceTools
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+              }`}
+              title="Tampilkan atau sembunyikan alat pemeliharaan data"
             >
-              <Trash2 className="w-4 h-4 text-red-600" />
-              <span>Bersihkan Data Dummy</span>
+              <Trash2 className="w-4 h-4" />
+              <span>Pemeliharaan</span>
             </button>
+
+            {showMaintenanceTools && (
+              <button
+                onClick={() => setShowClearDummyModal(true)}
+                className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold transition shadow-2xs text-xs cursor-pointer"
+                title="Bersihkan semua data dummy/uji coba (nilai CBT, simulasi, esai, chat, dan radar)"
+              >
+                <Trash2 className="w-4 h-4 text-red-600" />
+                <span>Bersihkan Data Dummy</span>
+              </button>
+            )}
 
             <div className="px-3.5 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-center">
               <div className="text-[10px] text-slate-500 font-mono">Siswa</div>
@@ -1085,6 +1102,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
                   try {
                     await fetch('/api/admin/clear-dummy-data', { method: 'POST' });
                     await clearAllDataFromFirestore();
+                    localStorage.removeItem('tjkn_exam_submissions_v2');
                     localStorage.removeItem('tjkn_submissions_v1');
                     localStorage.removeItem('tjkn_simulation_logs');
                     localStorage.removeItem('tjkn_direct_messages_v1');
@@ -1096,6 +1114,7 @@ export const TeacherAdminDashboard: React.FC<TeacherAdminDashboardProps> = ({
                   } finally {
                     setIsClearingDummy(false);
                     setShowClearDummyModal(false);
+                    window.location.reload();
                   }
                 }}
                 className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs"
